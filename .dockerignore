@@ -1,0 +1,23 @@
+# code/.dockerignore
+
+.git
+.gitignore
+.dockerignore
+Dockerfile # Der Dockerfile selbst wird nicht in den Kontext kopiert (außer man braucht ihn explizit)
+
+# Lokale node_modules Ordner (werden im Container neu installiert)
+node_modules/
+backend/node_modules/
+U-Need-A-Friend/node_modules/
+
+# Build-Artefakte, die im Container neu erstellt werden
+U-Need-A-Friend/dist/ # Wird in der frontend-builder Stage erstellt
+
+# Log-Dateien und lokale Environment-Dateien
+*.log
+.env
+.env.*
+
+# Editor/IDE spezifische Ordner
+.vscode/
+.idea/

@@ -2,6 +2,8 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const path = require('path'); // Hinzufügen
+
 
 const app = express();
 const server = http.createServer(app);
@@ -11,6 +13,10 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
   },
 });
+
+const frontendPath = path.join(__dirname, 'public_frontend');
+app.use(express.static(frontendPath));
+// ----------------------------------------------------
 
 const games = {};
 
@@ -330,6 +336,9 @@ io.on("connection", (socket) => {
         targetSymbol: currentTargetSymbol
     });
   }
+});
+app.get('*', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
 const PORT = process.env.PORT || 3000;
