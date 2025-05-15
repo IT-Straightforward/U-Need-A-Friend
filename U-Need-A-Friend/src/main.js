@@ -4,7 +4,7 @@ import App from './App.vue';
 import router from './router';
 import { io } from 'socket.io-client';
 
-const socket = io('http://localhost:3000');  // URL of backend server
+const socket = io('https://uneedafriend-otabkks5.b4a.run/');  // URL of backend server
 
 const app = createApp(App);
 
