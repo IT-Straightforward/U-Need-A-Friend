@@ -8,6 +8,7 @@
           <input id="hostNameInput" v-model="hostName" placeholder="Optional" />
         </div>
         <button type="submit">Create Game</button>
+        <p class="alternative-link">Or <router-link to="/join">Join a game</router-link></p>
       </form>
     </div>
 
@@ -287,5 +288,8 @@ input {
   box-sizing: border-box;
   border: 1px solid #ccc;
   border-radius: 4px;
+}
+.alternative-link {
+  margin-top: 1rem;
 }
 </style>
