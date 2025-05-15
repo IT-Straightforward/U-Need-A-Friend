@@ -1,0 +1,18 @@
+{
+  "name": "code",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+  "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
+  "dev:client": "npm --prefix U-Need-A-Friend run dev",
+  "dev:server": "npm --prefix backend run dev"
+},
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

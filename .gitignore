@@ -1,0 +1,38 @@
+# General
+.DS_Store
+.env
+.env.*
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor/IDE specific
+.vscode/
+.idea/
+*.suo
+*.user
+*.sln
+*.ide
+
+# Node.js / Backend (bezogen auf das backend/ Verzeichnis)
+backend/node_modules/
+backend/dist/
+backend/coverage/
+backend/.env
+backend/.env.*
+backend/*.log
+
+# Vue.js / Frontend (bezogen auf das U-Need-A-Friend/ Verzeichnis)
+U-Need-A-Friend/node_modules/
+U-Need-A-Friend/dist/
+U-Need-A-Friend/.env
+U-Need-A-Friend/.env.*
+U-Need-A-Friend/*.log
+U-Need-A-Friend/coverage/ # Falls Test-Coverage generiert wird
+U-Need-A-Friend/.quasar/ # Falls du Quasar verwendest
+U-Need-A-Friend/public/build/ # Falls Vite oder Ähnliches hier baut
+
+# Build-Output des Frontends, falls es in einen spezifischen Ordner im Backend kopiert wird
+# z.B. wenn das Backend die statischen Frontend-Dateien ausliefert
+# backend/public_frontend/
