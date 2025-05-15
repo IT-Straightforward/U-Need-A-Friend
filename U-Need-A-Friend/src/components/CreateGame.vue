@@ -15,7 +15,7 @@
     <div v-if="gameId" class="lobby">
       <h3>Lobby</h3>
       <p><strong>Game ID:</strong> {{ gameId }}</p>
-      <p>Share this Game ID with players to join (2–6 players).</p>
+      <p>Share this Game ID with players to join (2–18 players).</p>
 
       <h4>Players Joined: {{ players.length }}</h4>
       <ul v-if="players.length > 0">
