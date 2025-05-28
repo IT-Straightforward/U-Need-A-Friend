@@ -1,0 +1,32 @@
+[
+    { 
+      "id": "OCEAN", 
+      "name": "Ozean", 
+      "maxPlayers": 6, 
+      "description": "Tauche ab und entdecke die Geheimnisse der Tiefsee." 
+    },
+    { 
+      "id": "STADIUM", 
+      "name": "Fussballplatz", 
+      "maxPlayers": 6, 
+      "description": "Führe dein Team zum Sieg im entscheidenden Spiel." 
+    },
+    { 
+      "id": "AIRPORT", 
+      "name": "Flughafen", 
+      "maxPlayers": 6, 
+      "description": "Navigiere durch das Terminal und erwische deinen Flug." 
+    },
+    { 
+      "id": "STATION", 
+      "name": "Bahnstation", 
+      "maxPlayers": 6, 
+      "description": "Finde das richtige Gleis und löse ein altes Rätsel." 
+    },
+    { 
+      "id": "SOLAR", 
+      "name": "Sonnensystem", 
+      "maxPlayers": 6, 
+      "description": "Eine abenteuerliche Reise durch die Planeten." 
+    }
+  ]
