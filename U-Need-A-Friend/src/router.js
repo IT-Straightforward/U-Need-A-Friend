@@ -1,6 +1,6 @@
 // src/router.js
 import { createRouter, createWebHistory } from 'vue-router';
-import CreateGame from '@/components/CreateGame.vue';
+import AdminPanel from '@/components/AdminPanel.vue';
 import JoinGame from '@/components/JoinGame.vue';
 import Game from '@/components/Game.vue'; // Import der Game-Komponente
 import WaitingRoom from '@/components/WaitingRoom.vue';
@@ -8,7 +8,7 @@ import WaitingRoom from '@/components/WaitingRoom.vue';
 const routes = [
   { path: '/', redirect: '/join' },
   { path: '/join', component: JoinGame },
-  { path: '/create', component: CreateGame },
+  { path: '/create', component: AdminPanel },
   {
     path: '/game/:gameId', 
     name: 'GameView',      
