@@ -1,14 +1,11 @@
-// src/main.js
 import { createApp } from 'vue';
 import App from './App.vue';
 import router from './router';
-import { io } from 'socket.io-client';
-
-const socket = io('https://uneedafriend-otabkks5.b4a.run/');  // URL of backend server
+import socket from './socket'; // <<< Importiere die konfigurierte Socket-Instanz
 
 const app = createApp(App);
 
-// Provide the socket to all components (so they can inject it)
+// Stelle die zentrale Socket-Instanz allen Komponenten über inject('socket') bereit
 app.provide('socket', socket);
 
 app.use(router);
