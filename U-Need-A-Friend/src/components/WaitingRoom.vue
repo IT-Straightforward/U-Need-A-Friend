@@ -1,33 +1,57 @@
 <template>
-  <div class="waiting-room">
-    <h2>Waiting for host to start the game...</h2>
-    <p>Game Code: <strong>{{ gameId }}</strong></p>
+  <div class="waiting-room-app-container" :style="computedRoomStyle" ref="containerRef">
+    <h2 class="room-title-main">{{ roomDisplayName || gameId }}</h2>
 
-    <div v-if="!gameIsOver">
-        <h4>Players in Lobby: ({{ players.length }})</h4>
-        <ul v-if="players.length > 0">
-        <li v-for="playerItem in players" :key="playerItem.id">
-            {{ playerItem.name }}
-            <span v-if="playerItem.id === ownSocketId" class="you-indicator">(You)</span>
-        </li>
-        </ul>
-        <p v-else>You are the first one here!</p>
-        <p class="status-message" v-if="statusMessage">{{ statusMessage }}</p>
+    <div 
+      class="bubble-base player-count-bubble" 
+      :style="bubbles.playerCount.style"> 
+      <span class="bubble-text">Spieler</span>
+      <span class="bubble-text-prominent">{{ players.length }} / {{ maxPlayersInRoom || '?' }}</span>
+      <div v-if="countdownTime !== null" class="countdown-overlay">
+        {{ countdownTime }}s
+      </div>
     </div>
-    <div v-else>
-        <p class="game-over-message">{{ statusMessage }}</p>
-        <router-link to="/join" class="link-button">Back to Join Game</router-link>
+
+    <button 
+      class="bubble-base ready-bubble-button" 
+      @click="toggleReadyStatus" 
+      :disabled="isTogglingReady || countdownTime !== null" 
+      :class="{'is-ready': myReadyStatus, 'disabled-during-countdown': countdownTime !== null}"
+      :style="bubbles.readyButton.style">
+      <span v-if="!isTogglingReady" class="bubble-text">
+        <span v-if="myReadyStatus">Bereit! ✓</span>
+        <span v-else>Bereit?</span>
+      </span>
+      <span v-else class="bubble-text">...</span>
+    </button>
+
+    <button 
+      class="bubble-base leave-bubble-button" 
+      @click="triggerLeaveGame" 
+      :disabled="countdownTime !== null && !gameIsOver"
+      :style="bubbles.leaveButton.style">
+      <span class="bubble-text">Verlassen</span>
+    </button>
+
+    <div v-if="statusMessage && countdownTime === null && !gameIsOver" class="floating-status-message">
+      {{ statusMessage }}
     </div>
-    <button v-if="!gameIsOver" @click="triggerLeaveGame" class="leave-button">Leave Lobby</button>
+
+    <div v-if="gameIsOver" class="game-over-overlay">
+      <p class="game-over-text">{{ statusMessage }}</p>
+      <router-link to="/join" class="bubble-base back-to-join-bubble-gameover">Zurück</router-link>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, inject, onMounted, onUnmounted, computed } from 'vue';
+// In U-Need-A-Friend/src/components/WaitingRoom.vue
+import { ref, reactive, onMounted, onUnmounted, computed, nextTick, inject } from 'vue'; // <<< 'inject' HINZUGEFÜGT
 import { useRouter } from 'vue-router';
 
+
 const props = defineProps({
-  gameId: {
+  gameId: { // Dies ist die roomId
     type: String,
     required: true
   }
@@ -36,139 +60,360 @@ const props = defineProps({
 const socket = inject('socket');
 const router = useRouter();
 
+// Refs für den Client-Zustand
 const players = ref([]);
 const ownSocketId = ref('');
-const statusMessage = ref('Connecting and waiting for updates...');
-const gameIsOver = ref(false); // Für gameCancelled oder gameEnded
+const roomDisplayName = ref(''); 
+const roomPastelColor = ref('#E0F7FA'); // Standard-Pastellfarbe
+const maxPlayersInRoom = ref(null); 
+const statusMessage = ref('Warteraum wird geladen...');
+const gameIsOver = ref(false);
+const myReadyStatus = ref(false); 
+const isTogglingReady = ref(false); 
+const countdownTime = ref(null); 
+const countdownEndTime = ref(null);
+let localCountdownIntervalId = null;
+let animationFrameId = null;
 
-// --- Socket Event Handler ---
-const handleGameUpdate = (data) => {
-  if (data.gameId === props.gameId) {
-    players.value = data.players || [];
-    if (data.message) {
-        statusMessage.value = data.message;
-    } else if (players.value.length > 0 && !gameIsOver.value){
-        statusMessage.value = 'Lobby updated. Waiting for host...';
+// --- Bubble Animations-Setup ---
+const containerRef = ref(null); // Ref für den Hauptcontainer
+
+// Reaktives Objekt für die Eigenschaften und Styles der Bubbles
+// WICHTIG: Passe die `imagePath` hier an deine tatsächlichen Bildpfade an!
+// Vite Aliase wie '@/' funktionieren hier direkt im String nicht, wenn sie nicht speziell aufgelöst werden.
+// Am sichersten ist es, die Bilder im `public` Ordner zu haben und mit `/bild.png` zu referenzieren,
+// oder den Import-Mechanismus für Assets zu nutzen, wenn sie in `src/assets` sind (siehe CSS unten).
+// Für dieses Beispiel gehe ich davon aus, die Bilder sind im `public` Ordner oder werden korrekt aufgelöst.
+// Alternativ kann man die background-image Eigenschaft direkt im :style setzen oder CSS-Klassen verwenden.
+
+const bubbles = reactive({
+  playerCount: { x: 200, y: 50, vx: 0.25, vy: 0.35, width: 100, height: 100, imagePath: '/src/assets/bubble-blue.png', style: {} }, 
+  readyButton: { x: 50, y: 120, vx: -0.3, vy: 0.25, width: 170, height: 170, imagePath: '/src/assets/bubble-blue.png', readyImagePath: '/src/assets/bubble-blue.png', style: {} },
+  leaveButton: { x: 100, y: 250, vx: 0.2, vy: -0.3, width: 120, height: 120, imagePath: '/src/assets/bubble-blue.png', style: {} }
+});
+
+// Funktion, um die Inline-Styles für jede Bubble zu generieren
+function updateBubbleDynamicStyles() {
+  for (const key in bubbles) {
+    const bubble = bubbles[key];
+    let currentImage = bubble.imagePath;
+    if (key === 'readyButton' && myReadyStatus.value && bubble.readyImagePath) {
+      currentImage = bubble.readyImagePath;
+    }
+    bubbles[key].style = {
+      position: 'absolute',
+      top: `${bubble.y}px`,
+      left: `${bubble.x}px`,
+      width: `${bubble.width}px`,
+      height: `${bubble.height}px`,
+      backgroundImage: `url(${currentImage})`, // Pfad zum Bild
+    };
+  }
+}
+
+const computedRoomStyle = computed(() => ({
+  backgroundColor: roomPastelColor.value,
+  minHeight: '100vh', 
+  width: '100%',
+  position: 'relative', 
+  overflow: 'hidden',
+}));
+
+function updateBubblePositions() {
+  if (!containerRef.value) return;
+
+  const containerWidth = containerRef.value.clientWidth;
+  const containerHeight = containerRef.value.clientHeight;
+
+  for (const key in bubbles) {
+    const bubble = bubbles[key];
+
+    bubble.x += bubble.vx;
+    bubble.y += bubble.vy;
+
+    // Kollision und Abprallen
+    if (bubble.x + bubble.width > containerWidth) {
+      bubble.x = containerWidth - bubble.width;
+      bubble.vx *= -1;
+    } else if (bubble.x < 0) {
+      bubble.x = 0;
+      bubble.vx *= -1;
+    }
+
+    if (bubble.y + bubble.height > containerHeight) {
+      bubble.y = containerHeight - bubble.height;
+      bubble.vy *= -1;
+    } else if (bubble.y < 0) {
+      bubble.y = 0;
+      bubble.vy *= -1;
     }
   }
-};
+  updateBubbleDynamicStyles(); // Aktualisiere die Inline-Styles nach Positionsänderung
+  animationFrameId = requestAnimationFrame(updateBubblePositions);
+}
 
-const handleGoToGame = (data) => {
+// --- Socket Event Handler (Logik wie zuvor) ---
+const handleGameUpdate = (data) => { /* ... wie zuvor, setzt roomPastelColor, maxPlayersInRoom etc. ... */ 
   if (data.gameId === props.gameId) {
-    console.log('Navigating to game:', data.gameId);
-    // Hier keine Symbole mehr aus localStorage, Game.vue erhält sie via 'gameStarted'
+    players.value = data.players || [];
+    if (data.roomName) roomDisplayName.value = data.roomName;
+    if (data.pastelColor) roomPastelColor.value = data.pastelColor;
+    if (data.maxPlayers !== undefined) maxPlayersInRoom.value = data.maxPlayers;
+    const me = players.value.find(p => p.id === ownSocketId.value);
+    if (me) myReadyStatus.value = me.isReadyInLobby;
+    if (countdownTime.value === null && !gameIsOver.value) {
+        if (data.message) statusMessage.value = data.message;
+        else { /* Status basierend auf Spieler/Ready-Status */ }
+    }
+    updateBubbleDynamicStyles(); // Wichtig, um z.B. das Bild des Ready-Buttons zu ändern
+  }
+};
+const handleGoToGame = (data) => { /* ... wie zuvor ... */ 
+  if (data.gameId === props.gameId) {
+    if(localCountdownIntervalId) clearInterval(localCountdownIntervalId); 
+    countdownTime.value = null;
     router.push(`/game/${props.gameId}`);
   }
 };
-
-const handleGameCancelled = (data) => {
-  statusMessage.value = data.message || 'The game has been cancelled by the host.';
+const handleLobbyCountdownStarted = (data) => { /* ... wie zuvor ... */ 
+  if (data.roomId === props.gameId) {
+    countdownEndTime.value = data.endTime;
+    countdownTime.value = data.duration;
+    statusMessage.value = ""; 
+    if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
+    localCountdownIntervalId = setInterval(() => {
+      if (countdownEndTime.value === null) { clearInterval(localCountdownIntervalId); localCountdownIntervalId = null; return; }
+      const remaining = Math.max(0, Math.round((countdownEndTime.value - Date.now()) / 1000));
+      countdownTime.value = remaining;
+      if (remaining <= 0) { clearInterval(localCountdownIntervalId); localCountdownIntervalId = null; }
+    }, 1000);
+  }
+};
+const handleLobbyCountdownCancelled = (data) => { /* ... wie zuvor ... */ 
+  if (data.roomId === props.gameId) {
+    if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
+    localCountdownIntervalId = null; countdownTime.value = null; countdownEndTime.value = null;
+    statusMessage.value = data.message || 'Countdown abgebrochen.';
+  }
+};
+const handleGameCancelledOrEnded = (data, type = "ended") => { /* ... wie zuvor ... */ 
+  let msg = '';
+  if (type === "cancelled") msg = data.message || 'Das Spiel wurde abgebrochen.';
+  else msg = `Sitzung beendet: ${data.message || data.reason}`;
+  if (!data.gameId || data.gameId === props.gameId) {
+    if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
+    countdownTime.value = null; statusMessage.value = msg; gameIsOver.value = true;
+  }
+};
+const handleGameNotFound = (data) => { /* ... wie zuvor ... */ 
+  statusMessage.value = data.message || `Raum ${props.gameId} nicht gefunden oder inaktiv.`;
   gameIsOver.value = true;
-  // Optional: Automatische Weiterleitung nach einiger Zeit
-  // setTimeout(() => router.push('/join'), 3000);
 };
 
-const handleGameEnded = (data) => {
-  statusMessage.value = `Game ended: ${data.message || data.reason}`;
-  gameIsOver.value = true;
-  // setTimeout(() => router.push('/join'), 3000);
-};
 
-onMounted(() => {
+onMounted(async () => {
   ownSocketId.value = socket.id;
-  statusMessage.value = 'Joining lobby...';
+  // ... (socket.on Handler registrieren wie zuvor) ...
+  socket.on('gameUpdate', handleGameUpdate);
+  socket.on('goToGame', handleGoToGame);
+  socket.on('gameCancelled', (data) => handleGameCancelledOrEnded(data, "cancelled"));
+  socket.on('gameEnded', (data) => handleGameCancelledOrEnded(data, "ended"));
+  socket.on('gameNotFound', handleGameNotFound);
+  socket.on('lobby:countdownStarted', handleLobbyCountdownStarted);
+  socket.on('lobby:countdownCancelled', handleLobbyCountdownCancelled);
 
-  // Explizit dem Server mitteilen, dass man Updates für dieses Spiel abonnieren möchte
-  // (Der Server fügt den Socket bereits dem Raum in 'joinGame' hinzu, dies ist eine zusätzliche Bestätigung/Aktion)
-  // socket.emit('subscribeToLobbyUpdates', { gameId: props.gameId });
-  // => Dies ist im Grunde durch socket.join(gameId) serverseitig bei 'joinGame' abgedeckt.
-  // Ein initiales 'gameUpdate' wäre gut, wenn der Server es direkt nach dem Join sendet.
-  // Oder der Client fordert es an:
-  socket.emit('requestInitialLobbyState', { gameId: props.gameId }); // Neuer Event-Vorschlag
+  socket.emit('requestInitialLobbyState', { gameId: props.gameId }); 
 
-  socket.on('gameUpdate', handleGameUpdate); // Spielerliste etc.
-  socket.on('goToGame', handleGoToGame);     // Host hat Spiel gestartet
-  socket.on('gameCancelled', handleGameCancelled); // Host hat Spiel abgebrochen
-  socket.on('gameEnded', handleGameEnded);       // Spiel serverseitig beendet (z.B. Host-Disconnect)
+  await nextTick(); // Stellt sicher, dass das DOM gerendert wurde
+  if (containerRef.value) {
+    // Initiale Positionen etwas zufälliger im Container verteilen
+    const cWidth = containerRef.value.clientWidth;
+    const cHeight = containerRef.value.clientHeight;
 
-  // Fallback, falls die Seite direkt aufgerufen wird und noch nicht im Spiel ist.
-  // Dies würde eine robustere Logik erfordern, um den Spielbeitritt erneut zu versuchen.
+    bubbles.playerCount.x = cWidth * 0.7 - bubbles.playerCount.width / 2;
+    bubbles.playerCount.y = cHeight * 0.2 - bubbles.playerCount.height / 2;
+
+    bubbles.readyButton.x = cWidth / 2 - bubbles.readyButton.width / 2;
+    bubbles.readyButton.y = cHeight / 2 - bubbles.readyButton.height / 2;
+    
+    bubbles.leaveButton.x = cWidth / 2 - bubbles.leaveButton.width / 2;
+    bubbles.leaveButton.y = cHeight * 0.8 - bubbles.leaveButton.height / 2;
+    
+    updateBubbleDynamicStyles(); // Initiale Styles setzen
+    animationFrameId = requestAnimationFrame(updateBubblePositions);
+  }
 });
 
 onUnmounted(() => {
+  if (animationFrameId) cancelAnimationFrame(animationFrameId);
+  if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
+  // ... (socket.off für alle Handler) ...
   socket.off('gameUpdate', handleGameUpdate);
   socket.off('goToGame', handleGoToGame);
-  socket.off('gameCancelled', handleGameCancelled);
-  socket.off('gameEnded', handleGameEnded);
-
-  // Beim Verlassen des Warteraums nicht unbedingt 'leaveGame' senden,
-  // da der Nutzer vielleicht nur navigiert. 'disconnect' wird serverseitig behandelt.
-  // Ein expliziter "Leave Lobby"-Button ist besser.
+  socket.off('gameCancelled'); 
+  socket.off('gameEnded');
+  socket.off('gameNotFound', handleGameNotFound);
+  socket.off('lobby:countdownStarted', handleLobbyCountdownStarted);
+  socket.off('lobby:countdownCancelled', handleLobbyCountdownCancelled);
 });
+
+function toggleReadyStatus() {
+  if (isTogglingReady.value || countdownTime.value !== null) return;
+  isTogglingReady.value = true;
+  const newReadyState = !myReadyStatus.value;
+  socket.emit('player:setReadyStatus', { roomId: props.gameId, isReady: newReadyState }, (response) => {
+    isTogglingReady.value = false;
+    if (response && response.success) { 
+        // myReadyStatus wird durch 'gameUpdate' aktualisiert
+        // Hier könnte ein direktes UI-Feedback für den Klicker erfolgen, wenn gewünscht
+    } else { 
+      statusMessage.value = `Fehler: ${response?.error || 'Status konnte nicht gesetzt werden.'}`; 
+    }
+    updateBubbleDynamicStyles(); // Um ggf. Bild des Ready-Buttons zu aktualisieren
+  });
+}
 
 function triggerLeaveGame() {
   if (!gameIsOver.value) {
+    if(localCountdownIntervalId) clearInterval(localCountdownIntervalId); 
+    countdownTime.value = null;
     socket.emit('leaveGame', { gameId: props.gameId });
-    router.push('/join');
   }
+  router.push('/join'); 
 }
-
 </script>
 
 <style scoped>
-.waiting-room {
-  max-width: 500px;
-  margin: 2rem auto;
-  padding: 1.5rem;
-  text-align: center;
-  background-color: #fff;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-}
-ul {
-  list-style: none;
+.waiting-room-app-container {
+  width: 100%;
+  min-height: 100vh;
   padding: 0;
-  margin-bottom: 1.5rem;
+  display: block; 
+  position: relative; 
+  overflow: hidden; /* Wichtig, damit Bubbles nicht rausragen */
+  font-family: 'Baloo 2', cursive, 'Arial Rounded MT Bold', sans-serif; /* Freundliche, runde Schrift */
+  color: white; 
+  box-sizing: border-box;
+  transition: background-color 0.5s ease-out;
 }
-li {
-  padding: 0.3rem 0;
-  border-bottom: 1px solid #f0f0f0;
+
+.room-title-main {
+  position: absolute;
+  top: 25px; /* Etwas tiefer */
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 2.8em;
+  font-weight: 700; /* Etwas dicker */
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 3px 6px rgba(0,0,0,0.35);
+  margin: 0;
+  z-index: 10;
+  letter-spacing: 1px;
 }
-li:last-child {
-  border-bottom: none;
-}
-.you-indicator {
-  font-style: italic;
-  color: #007bff;
-  margin-left: 0.5rem;
-}
-.status-message {
-  margin-top: 1rem;
-  padding: 0.75rem;
-  background-color: #e9ecef;
-  border-radius: 4px;
-  color: #495057;
-}
-.game-over-message {
-    color: #dc3545;
-    font-weight: bold;
-    margin-bottom: 1rem;
-}
-.link-button, .leave-button {
-  display: inline-block;
-  padding: 0.75rem 1.5rem;
-  margin-top: 1rem;
-  text-decoration: none;
-  color: white;
-  background-color: #007bff;
+
+.bubble-base { /* Gemeinsame Klasse für alle Bubbles */
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-color: transparent; /* Wichtig für PNGs */
+  
+  border-radius: 50%; /* Für den Fall, dass PNG nicht perfekt rund oder als Fallback */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  color: #fff; /* Heller Text für dunklere Bubbles oder Text auf dem PNG anpassen */
+  font-weight: 600; /* Angepasst */
+  transition: transform 0.15s ease-out;
+  padding: 10px; 
+  box-sizing: border-box;
   border: none;
-  border-radius: 4px;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5); /* Textschatten für Lesbarkeit auf Bubble */
+  /* Filter für leichten Glanz-Effekt, kann mit PNGs interferieren oder gut aussehen */
+  /* filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2)) brightness(1.1); */
+}
+
+.bubble-button { /* Spezifisch für klickbare Bubbles */
+  cursor: pointer; 
+  user-select: none;
+}
+.bubble-button:hover:not(:disabled) {
+  transform: scale(1.08) translateY(-3px); /* Stärkerer Hover */
+  filter: brightness(1.15); /* Heller bei Hover */
+}
+.bubble-button:active:not(:disabled) {
+  transform: scale(1.02) translateY(0px);
+  filter: brightness(0.95);
+}
+.bubble-button:disabled {
+  filter: grayscale(60%) opacity(0.6); /* PNG wird grauer und durchsichtiger */
+  cursor: not-allowed;
+}
+
+.bubble-text {
+  font-size: 1em; 
+  line-height: 1.2;
+}
+.bubble-text-prominent {
+  font-size: 1.3em; /* Etwas kleiner für Info-Bubble */
+  display: block; 
+}
+
+.player-count-bubble .bubble-text { font-size: 0.8em; }
+.player-count-bubble .bubble-text-prominent { font-size: 1.4em; }
+
+.countdown-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: rgba(255, 255, 255, 0.2); /* Heller, transparenter Overlay */
+  color: white;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 50%; 
+  font-size: 2em; /* Größer für Countdown */
+  font-weight: bold;
+  backdrop-filter: blur(3px); /* Stärkerer Blur für Lesbarkeit */
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+
+.ready-bubble-button .bubble-text { font-size: 1.3em; } /* Größerer Text für Hauptaktion */
+.leave-bubble-button .bubble-text { font-size: 1em; }
+
+.floating-status-message {
+  position: fixed; /* Fixed, damit es auch bei Scroll (falls doch mal) bleibt */
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(44, 62, 80, 0.85); /* Dunkleres Blau/Grau */
+  color: white;
+  padding: 12px 22px;
+  border-radius: 25px; /* Bubble-Form */
+  font-size: 0.95em;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+  z-index: 100; /* Über allem */
+  max-width: 80%;
+  text-align: center;
+}
+
+.game-over-overlay { /* ... (wie zuletzt) ... */ }
+.game-over-text { /* ... (wie zuletzt) ... */ }
+.back-to-join-bubble-gameover { /* ... (wie zuletzt, ggf. PNG anwenden) ... */
+  /* Erbt von .bubble-base, aber ist kein .bubble-button per se mehr */
+  position: static; width: auto; height: auto;
+  padding: 15px 30px; /* Größerer Padding */
+  border-radius: 30px; /* Stärkere Rundung */
+  margin-top: 15px;
+  background-image: url('/src/assets/bubble-blue.png'); /* Beispiel für Button-PNG */
+  color: white;
   cursor: pointer;
+  font-weight: 600;
+  font-size: 1.1em;
+  text-decoration: none;
 }
-.leave-button {
-    background-color: #dc3545;
+.back-to-join-bubble-gameover:hover {
+    transform: scale(1.05);
 }
-.link-button:hover, .leave-button:hover {
-  opacity: 0.9;
-}
+
 </style>
