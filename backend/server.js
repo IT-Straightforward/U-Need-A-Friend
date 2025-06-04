@@ -13,10 +13,9 @@ const io = new Server(server, {
   },
 });
 
-const FRONTEND_SOURCE_PATH = path.join(__dirname, '..', 'U-Need-A-Friend');
 const frontendPath = path.join(__dirname, 'public_frontend');
 const filePathToPredefinedRooms = path.join(__dirname, 'predefinedRooms.json');
-const ICONS_BASE_PATH = path.join(FRONTEND_SOURCE_PATH, 'src', 'assets', 'icons');
+const ICONS_BASE_PATH = path.join(__dirname, 'assets_from_frontend', 'icons'); 
 app.use(express.static(frontendPath));
 
 let PREDEFINED_ROOM_CONFIGS = [];
