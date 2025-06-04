@@ -2,27 +2,28 @@
   <main class="mobile-container">
     <div class="device-box">
       <div class="display-area">
-        <span class="display-symbol">
-          {{ displayContent }}
-        </span>
-      </div>
+ <span class="display-symbol">
+   <template v-if="roleInCurrentRound === 'source' && currentTargetSymbolForRound">
+     <GameIcon :iconName="currentTargetSymbolForRound" :themeFolder="currentThemeFolder" />
+   </template>
+   </span>
+</div>
 
-      <div class="button-grid">
-        <button
-          v-for="(btnSymbol, i) in playerButtons"
-          :key="`button-${i}`"
-          class="button"
-          :class="{
-            correct: feedbackState === 'correct' && lastCorrectSymbol === btnSymbol,
-            incorrect: feedbackState === 'incorrect' && lastPressedSymbol === btnSymbol
-          }"
-          @click="handlePress(btnSymbol)"
-          :disabled="gameIsEffectivelyOver" 
-        >
-          {{ btnSymbol || "?" }}
-        </button>
-      </div>
-      
+<div class="button-grid">
+ <button
+   v-for="(iconId, i) in playerButtons" :key="`button-${i}`"
+   class="button"
+   :class="{
+     correct: feedbackState === 'correct' && lastCorrectSymbol === iconId,
+     incorrect: feedbackState === 'incorrect' && lastPressedSymbol === iconId
+   }"
+   @click="handlePress(iconId)"
+   :disabled="gameIsEffectivelyOver"
+ >
+   <GameIcon v-if="iconId" :iconName="iconId" :themeFolder="currentThemeFolder" />
+   <span v-else>?</span>
+ </button>
+</div>
       <p v-if="gameMessage" class="game-message" :class="{ 'error': isErrorMessage }">{{ gameMessage }}</p>
       <button v-if="!gameIsEffectivelyOver" class="leave-btn" @click="triggerLeaveGame">Leave Game</button>
       <router-link v-else to="/join" class="leave-btn router-link-btn">Back to Lobby</router-link>
@@ -32,7 +33,10 @@
 
 <script setup>
 import { ref, inject, onMounted, onUnmounted, computed } from 'vue';
+import GameIcon from './GameIcon.vue'; 
 import { useRouter } from 'vue-router';
+import { useGameSessionStore } from '@/stores/gameSessionStore'; // Pfad anpassen!
+import { storeToRefs } from 'pinia'; // Um Store-Refs reaktiv zu halten
 
 const props = defineProps({
   gameId: {
@@ -44,14 +48,16 @@ const props = defineProps({
 const socket = inject('socket');
 const router = useRouter();
 
+const gameSessionStore = useGameSessionStore(); 
+
+const { currentThemeFolder } = storeToRefs(gameSessionStore);
+
 const socketListenersInitialized = ref(false);
 
 const ownPlayerId = ref('');
 const playerButtons = ref([]); 
 const currentTargetSymbolForRound = ref(''); 
 const roleInCurrentRound = ref('inactive'); 
-// targetIndexOnOwnDevice wird serverseitig für die Logik verwendet, clientseitig für die Anzeige nicht mehr direkt relevant, wenn Target das Symbol nicht sieht
-// const targetIndexOnOwnDevice = ref(null); 
 const gameMessage = ref('Initializing game connection...');
 const isErrorMessage = ref(false);
 const feedbackState = ref(''); 
@@ -195,7 +201,7 @@ function handlePress(pressedSymbol) {
 
   lastPressedSymbol.value = pressedSymbol; 
   
-  // console.log(`[Game ${props.gameId}] Player ${ownPlayerId.value} pressed symbol: ${pressedSymbol}. Role: ${roleInCurrentRound.value}. Emitting 'buttonPress'.`);
+    console.log(`[Game ${props.gameId}] Player ${ownPlayerId.value} pressed symbol: ${pressedSymbol}. Role: ${roleInCurrentRound.value}. Emitting 'buttonPress'.`);
   socket.emit('buttonPress', {
     gameId: props.gameId,
     pressedSymbol: pressedSymbol 
@@ -217,8 +223,31 @@ function triggerLeaveGame() {
 .display-area { width: 100%; height: 80px; background: #111; border-radius: 16px; display: flex; justify-content: center; align-items: center; color: #00ff99; font-weight: bold; letter-spacing: 2px; }
 .display-symbol { font-size: 2.5rem; }
 .button-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; width: 100%; }
-.button { background: #5cb85c; color: white; font-size: 1.75rem; border: none; border-radius: 16px; padding: 1.25rem 0; text-align: center; user-select: none; transition: background 0.2s ease, transform 0.1s ease; cursor: pointer; }
-.button:disabled { background-color: #aaa !important; cursor: not-allowed !important; opacity: 0.7; }
+/* In Game.vue -> <style scoped> */
+.button {
+  background: #5cb85c;
+  color: white;
+  font-size: 1.75rem; /* Beeinflusst die 'em'-Einheit in GameIcon, falls dort 'em' verwendet wird */
+  border: none;
+  border-radius: 16px;
+  padding: 0.5rem; /* Reduziere Padding, um mehr Platz für das Icon zu schaffen, ODER erhöhe die Button-Dimensionen */
+  text-align: center;
+  user-select: none;
+  transition: background 0.2s ease, transform 0.1s ease;
+  cursor: pointer;
+
+  /* Wichtig für die Icon-Größe und Zentrierung: */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  /* Gib dem Button eine Mindesthöhe oder lass sie durch Inhalt + Padding entstehen.
+     Die Icons in GameIcon sind jetzt auf max. 2.5em der Button-Schriftgröße begrenzt.
+     1.75rem * 2.5 = ca. 4.375rem (ca. 70px bei 16px Basis).
+     Das Padding kommt noch dazu.
+  */
+  min-height: 80px; /* Beispiel, anpassen! */
+  min-width: 80px;  /* Beispiel, anpassen! */
+}.button:disabled { background-color: #aaa !important; cursor: not-allowed !important; opacity: 0.7; }
 .button:not(:disabled):active { background: #449d44; transform: scale(0.95); }
 .button.correct { background-color: #28a745 !important; }
 .button.incorrect { background-color: #dc3545 !important; animation: shake 0.5s; }

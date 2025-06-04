@@ -47,6 +47,7 @@
 <script setup>
 // In U-Need-A-Friend/src/components/WaitingRoom.vue
 import { ref, reactive, onMounted, onUnmounted, computed, nextTick, inject } from 'vue'; // <<< 'inject' HINZUGEFÜGT
+import { useGameSessionStore } from '@/stores/gameSessionStore';
 import { useRouter } from 'vue-router';
 
 
@@ -59,12 +60,16 @@ const props = defineProps({
 
 const socket = inject('socket');
 const router = useRouter();
+const gameSessionStore = useGameSessionStore(); 
 
 // Refs für den Client-Zustand
 const players = ref([]);
 const ownSocketId = ref('');
 const roomDisplayName = ref(''); 
-const roomPastelColor = ref('#E0F7FA'); // Standard-Pastellfarbe
+const roomBGColor = ref('#cfcfcf');
+const roomAccentColor1 = ref('#e8e8e8');
+const roomAccentColor2 = ref('#dcdcdc');
+const roomAccentColor3 = ref('#f5f5f5');
 const maxPlayersInRoom = ref(null); 
 const statusMessage = ref('Warteraum wird geladen...');
 const gameIsOver = ref(false);
@@ -88,8 +93,8 @@ const containerRef = ref(null); // Ref für den Hauptcontainer
 
 const bubbles = reactive({
   playerCount: { x: 200, y: 50, vx: 0.25, vy: 0.35, width: 100, height: 100, imagePath: '/src/assets/bubble-blue.png', style: {} }, 
-  readyButton: { x: 50, y: 120, vx: -0.3, vy: 0.25, width: 170, height: 170, imagePath: '/src/assets/bubble-blue.png', readyImagePath: '/src/assets/bubble-blue.png', style: {} },
-  leaveButton: { x: 100, y: 250, vx: 0.2, vy: -0.3, width: 120, height: 120, imagePath: '/src/assets/bubble-blue.png', style: {} }
+  readyButton: { x: 50, y: 120, vx: -0.3, vy: 0.25, width: 170, height: 170, imagePath: '/src/assets/bubble-green.png', readyImagePath: '/src/assets/bubble-yellow.png', style: {} },
+  leaveButton: { x: 100, y: 250, vx: 0.2, vy: -0.3, width: 120, height: 120, imagePath: '/src/assets/bubble-red.png', style: {} }
 });
 
 // Funktion, um die Inline-Styles für jede Bubble zu generieren
@@ -112,10 +117,13 @@ function updateBubbleDynamicStyles() {
 }
 
 const computedRoomStyle = computed(() => ({
-  backgroundColor: roomPastelColor.value,
-  minHeight: '100vh', 
+  backgroundColor: roomBGColor.value,
+  '--accent1': roomAccentColor1.value,
+  '--accent2': roomAccentColor2.value,
+  '--accent3': roomAccentColor3.value,
+  minHeight: '100vh',
   width: '100%',
-  position: 'relative', 
+  position: 'relative',
   overflow: 'hidden',
 }));
 
@@ -152,20 +160,53 @@ function updateBubblePositions() {
   animationFrameId = requestAnimationFrame(updateBubblePositions);
 }
 
-// --- Socket Event Handler (Logik wie zuvor) ---
-const handleGameUpdate = (data) => { /* ... wie zuvor, setzt roomPastelColor, maxPlayersInRoom etc. ... */ 
+// --- Socket Event Handler ---
+const handleGameUpdate = (data) => {
+  console.log("[WaitingRoom] Received gameUpdate data:", JSON.parse(JSON.stringify(data)));
+
   if (data.gameId === props.gameId) {
-    players.value = data.players || [];
     if (data.roomName) roomDisplayName.value = data.roomName;
-    if (data.pastelColor) roomPastelColor.value = data.pastelColor;
     if (data.maxPlayers !== undefined) maxPlayersInRoom.value = data.maxPlayers;
-    const me = players.value.find(p => p.id === ownSocketId.value);
-    if (me) myReadyStatus.value = me.isReadyInLobby;
-    if (countdownTime.value === null && !gameIsOver.value) {
-        if (data.message) statusMessage.value = data.message;
-        else { /* Status basierend auf Spieler/Ready-Status */ }
+    if (data.pastelPalette) {
+      roomBGColor.value = data.pastelPalette.primary;
+      roomAccentColor1.value = data.pastelPalette.accent1;
+       roomAccentColor2.value = data.pastelPalette.accent2;
+        roomAccentColor3.value = data.pastelPalette.accent3;
     }
-    updateBubbleDynamicStyles(); // Wichtig, um z.B. das Bild des Ready-Buttons zu ändern
+
+   
+    if (data.players !== undefined) { 
+      players.value = data.players;
+    }
+
+    if (data.iconThemeFolder) {
+      gameSessionStore.setCurrentTheme(data.iconThemeFolder);
+    }
+    
+    const me = players.value.find(p => p.id === ownSocketId.value);
+    if (me) {
+      myReadyStatus.value = me.isReadyInLobby;
+    } else {
+     // ToDo
+    }
+
+    // Logik für statusMessage basierend auf Spieleranzahl und Ready-Status
+    if (countdownTime.value === null && !gameIsOver.value) {
+        if (data.message) {
+            statusMessage.value = data.message;
+        } else {
+            const allReady = players.value.length > 0 && players.value.every(p => p.isReadyInLobby);
+            if (allReady && players.value.length >= 2) { // Mindestens 2 Spieler für "Alle bereit"
+                 statusMessage.value = 'Alle bereit! Countdown startet gleich...';
+            } else if (players.value.length > 0) {
+                statusMessage.value = 'Warte auf Bereitschaft aller Spieler...';
+            } else {
+                statusMessage.value = 'Du bist in der Lobby.';
+            }
+        }
+    }
+    updateBubbleDynamicStyles();
+
   }
 };
 const handleGoToGame = (data) => { /* ... wie zuvor ... */ 
@@ -299,11 +340,11 @@ function triggerLeaveGame() {
 
 .room-title-main {
   position: absolute;
-  top: 25px; /* Etwas tiefer */
+  top: 25px;
   left: 50%;
   transform: translateX(-50%);
   font-size: 2.8em;
-  font-weight: 700; /* Etwas dicker */
+  font-weight: 700; 
   color: rgba(255, 255, 255, 0.95);
   text-shadow: 0 3px 6px rgba(0,0,0,0.35);
   margin: 0;
@@ -311,27 +352,38 @@ function triggerLeaveGame() {
   letter-spacing: 1px;
 }
 
-.bubble-base { /* Gemeinsame Klasse für alle Bubbles */
+.room-title-main {
+  font-size: 2.2em;
+}
+
+@media (max-width: 480px) {
+  .room-title-main {
+    font-size: 1.6em;
+    top: 15px;
+  }
+}
+
+.bubble-base { 
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center;
-  background-color: transparent; /* Wichtig für PNGs */
+  background-color: transparent; 
   
-  border-radius: 50%; /* Für den Fall, dass PNG nicht perfekt rund oder als Fallback */
+  border-radius: 50%; 
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   text-align: center;
-  color: #fff; /* Heller Text für dunklere Bubbles oder Text auf dem PNG anpassen */
-  font-weight: 600; /* Angepasst */
+  color: #fff; 
+  font-weight: 600;
   transition: transform 0.15s ease-out;
   padding: 10px; 
   box-sizing: border-box;
   border: none;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.5); /* Textschatten für Lesbarkeit auf Bubble */
-  /* Filter für leichten Glanz-Effekt, kann mit PNGs interferieren oder gut aussehen */
-  /* filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2)) brightness(1.1); */
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5); 
+   filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2)) brightness(1.1); /* Mal gucken ob das gut aussieht*/ 
+
 }
 
 .bubble-button { /* Spezifisch für klickbare Bubbles */
@@ -363,10 +415,11 @@ function triggerLeaveGame() {
 .player-count-bubble .bubble-text { font-size: 0.8em; }
 .player-count-bubble .bubble-text-prominent { font-size: 1.4em; }
 
+/* Visual accent: Countdown uses accent1 */
 .countdown-overlay {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
-  background-color: rgba(255, 255, 255, 0.2); /* Heller, transparenter Overlay */
+  background-color: var(--accent1, rgba(255, 255, 255, 0.2));
   color: white;
   display: flex;
   justify-content: center;
@@ -381,12 +434,13 @@ function triggerLeaveGame() {
 .ready-bubble-button .bubble-text { font-size: 1.3em; } /* Größerer Text für Hauptaktion */
 .leave-bubble-button .bubble-text { font-size: 1em; }
 
+/* Visual accent: Status message uses accent2 */
 .floating-status-message {
   position: fixed; /* Fixed, damit es auch bei Scroll (falls doch mal) bleibt */
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  background-color: rgba(44, 62, 80, 0.85); /* Dunkleres Blau/Grau */
+  background-color: var(--accent2, rgba(44, 62, 80, 0.85));
   color: white;
   padding: 12px 22px;
   border-radius: 25px; /* Bubble-Form */
@@ -398,7 +452,10 @@ function triggerLeaveGame() {
 }
 
 .game-over-overlay { /* ... (wie zuletzt) ... */ }
-.game-over-text { /* ... (wie zuletzt) ... */ }
+/* Visual accent: Game over text uses accent3 */
+.game-over-text {
+  color: var(--accent3, white);
+}
 .back-to-join-bubble-gameover { /* ... (wie zuletzt, ggf. PNG anwenden) ... */
   /* Erbt von .bubble-base, aber ist kein .bubble-button per se mehr */
   position: static; width: auto; height: auto;
@@ -415,5 +472,14 @@ function triggerLeaveGame() {
 .back-to-join-bubble-gameover:hover {
     transform: scale(1.05);
 }
+
+@media (max-width: 480px) {
+  /* Responsive bubble scaling for small screens */
+  .bubble-base {
+    transform: scale(0.85);
+  }
+}
+}
+
 
 </style>
