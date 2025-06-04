@@ -1,37 +1,74 @@
 [
   { 
-    "id": "OCEAN", 
-    "name": "Ozean", 
-    "maxPlayers": 6, 
-    "description": "Tauche ab und entdecke die Geheimnisse der Tiefsee.",
-    "pastelColor": "#a7d8e8" 
+    "id": "ZOO",
+    "name": "Zoo",
+    "maxPlayers": 6,
+    "description": "Entdecke Tiere aus aller Welt.",
+    "pastelPalette": {
+      "primary": "#a8d5ba",
+      "accent1": "#d6ecd2",
+      "accent2": "#b0e0c9",
+      "accent3": "#e9f5ea"
+    }
+  },
+  {
+    "id": "MAPROOM",
+    "name": "Maproom",
+    "maxPlayers": 6,
+    "description": "Erkunde Flaggen und Länder auf einem riesigen Globus.",
+    "pastelPalette": {
+      "primary": "#f3c7a6",
+      "accent1": "#fde8c8",
+      "accent2": "#f5d5b0",
+      "accent3": "#fff1dc"
+    }
   },
   { 
-    "id": "STADIUM", 
-    "name": "Fussballplatz", 
-    "maxPlayers": 6, 
-    "description": "Führe dein Team zum Sieg im entscheidenden Spiel.",
-    "pastelColor": "#b9e8a7" 
+    "id": "FOODCOURT",
+    "name": "Foodcourt",
+    "maxPlayers": 6,
+    "description": "Von Pizza bis Sushi - finde dein Lieblingsgericht.",
+    "pastelPalette": {
+      "primary": "#f7bfb4",
+      "accent1": "#ffe2db",
+      "accent2": "#f9cfc3",
+      "accent3": "#fff5f0"
+    }
   },
   { 
-    "id": "AIRPORT", 
-    "name": "Flughafen", 
-    "maxPlayers": 6, 
-    "description": "Navigiere durch das Terminal und erwische deinen Flug.",
-    "pastelColor": "#d1d1d1" 
+    "id": "AT_HOME",
+    "name": "At Home",
+    "maxPlayers": 6,
+    "description": "Alltagsgegenstände die jeder kennt.",
+    "pastelPalette": {
+      "primary": "#d9c8ae",
+      "accent1": "#f3ebdd",
+      "accent2": "#e6d8c1",
+      "accent3": "#f9f5f0"
+    }
   },
   { 
-    "id": "STATION", 
-    "name": "Bahnstation", 
-    "maxPlayers": 6, 
-    "description": "Finde das richtige Gleis und löse ein altes Rätsel.",
-    "pastelColor": "#f0e68c" 
+    "id": "GYM",
+    "name": "Gym",
+    "maxPlayers": 6,
+    "description": "Man muss kein Olympiasieger sein.",
+    "pastelPalette": {
+      "primary": "#a7c7e7",
+      "accent1": "#d6e9f8",
+      "accent2": "#bddcf4",
+      "accent3": "#eef6fc"
+    }
   },
   { 
-    "id": "SOLAR", 
-    "name": "Sonnensystem", 
-    "maxPlayers": 6, 
-    "description": "Eine abenteuerliche Reise durch die Planeten.",
-    "pastelColor": "#c3b9e8" 
+    "id": "GARAGE",
+    "name": "Garage",
+    "maxPlayers": 6,
+    "description": "Entdecke alles, was Räder, Schrauben oder Ketten hat.",
+    "pastelPalette": {
+      "primary": "#d3bce0",
+      "accent1": "#f0e5f7",
+      "accent2": "#e1cef1",
+      "accent3": "#f8f3fb"
+    }
   }
 ]
