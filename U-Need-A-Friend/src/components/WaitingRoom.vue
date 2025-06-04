@@ -49,6 +49,10 @@
 import { ref, reactive, onMounted, onUnmounted, computed, nextTick, inject } from 'vue'; // <<< 'inject' HINZUGEFÜGT
 import { useGameSessionStore } from '@/stores/gameSessionStore';
 import { useRouter } from 'vue-router';
+import bubbleBluePath from '@/assets/bubble-blue.png'; // Vite Alias @/ für src/
+import bubbleGreenPath from '@/assets/bubble-green.png';
+import bubbleYellowPath from '@/assets/bubble-yellow.png';
+import bubbleRedPath from '@/assets/bubble-red.png';
 
 
 const props = defineProps({
@@ -92,9 +96,9 @@ const containerRef = ref(null); // Ref für den Hauptcontainer
 // Alternativ kann man die background-image Eigenschaft direkt im :style setzen oder CSS-Klassen verwenden.
 
 const bubbles = reactive({
-  playerCount: { x: 200, y: 50, vx: 0.25, vy: 0.35, width: 100, height: 100, imagePath: '/src/assets/bubble-blue.png', style: {} }, 
-  readyButton: { x: 50, y: 120, vx: -0.3, vy: 0.25, width: 170, height: 170, imagePath: '/src/assets/bubble-green.png', readyImagePath: '/src/assets/bubble-yellow.png', style: {} },
-  leaveButton: { x: 100, y: 250, vx: 0.2, vy: -0.3, width: 120, height: 120, imagePath: '/src/assets/bubble-red.png', style: {} }
+  playerCount: { x: 200, y: 50, vx: 0.25, vy: 0.35, width: 100, height: 100, imagePath: bubbleBluePath, style: {} }, 
+  readyButton: { x: 50, y: 120, vx: -0.3, vy: 0.25, width: 170, height: 170, imagePath: bubbleGreenPath, readyImagePath: bubbleYellowPath, style: {} },
+  leaveButton: { x: 100, y: 250, vx: 0.2, vy: -0.3, width: 120, height: 120, imagePath: bubbleRedPath, style: {} }
 });
 
 // Funktion, um die Inline-Styles für jede Bubble zu generieren
