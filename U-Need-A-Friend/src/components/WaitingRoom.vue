@@ -479,7 +479,7 @@ function triggerLeaveGame() {
     transform: scale(0.85);
   }
 }
-}
+
 
 
 </style>
