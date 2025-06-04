@@ -27,6 +27,9 @@ try {
 } catch (error) {
   console.error("Error loading predefinedRooms.json:", error);
 }
+// ----------------------------------------------
+
+const games = {}; // Speichert aktive Spielinstanzen, gekeyed mit der Raum-ID
 
 const games = {}; 
 
@@ -119,7 +122,6 @@ function assignSymbolsToAllPlayersInGame(game) {
     }
     return false;
   }
-
   let symbolsToAssign;
   if (totalSymbolsNeeded > currentSymbolPool.length) {
     console.warn(`[Game ${game.id}] Warning: Not enough unique symbols in theme '${themeFolder}' pool (length ${currentSymbolPool.length}) for all players (${totalSymbolsNeeded} needed). Symbols will repeat.`);
@@ -237,6 +239,10 @@ io.on("connection", (socket) => {
       io.emit('admin:roomStatusUpdate', { roomId, status: { isActive: true, isRunning: gameInstance.isRunning, playerCount: gameInstance.players.length, pastelPalette: gameInstance.pastelPalette, maxPlayers: gameInstance.maxPlayers } });
     }
   });
+  
+  if (typeof callback === 'function') { // Auch den optionalen Callback bedienen
+      callback({ success: true, roomId, status: currentStatusPayload });
+  }
 
   socket.on("admin:getRoomDetails", ({ roomId }, callback) => {
     console.log(`[Admin ${socket.id}] requested details for room: ${roomId}`);
@@ -801,11 +807,9 @@ function startNewRound(game) {
   }
 }
 
-// Schließe den io.on("connection", ...) Block korrekt
 });
 
 
-// SPA Fallback Route und Server Start bleiben wie gehabt
 app.get('*', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });

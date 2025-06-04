@@ -206,6 +206,7 @@ const handleGameUpdate = (data) => {
         }
     }
     updateBubbleDynamicStyles();
+
   }
 };
 const handleGoToGame = (data) => { /* ... wie zuvor ... */ 
@@ -382,6 +383,7 @@ function triggerLeaveGame() {
   border: none;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5); 
    filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2)) brightness(1.1); /* Mal gucken ob das gut aussieht*/ 
+
 }
 
 .bubble-button { /* Spezifisch für klickbare Bubbles */
@@ -477,5 +479,7 @@ function triggerLeaveGame() {
     transform: scale(0.85);
   }
 }
+}
+
 
 </style>

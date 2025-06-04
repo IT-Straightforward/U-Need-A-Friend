@@ -11,5 +11,4 @@ app.provide('socket', socket);
 
 app.use(router);
 app.use(createPinia()) 
-
 app.mount('#app');
