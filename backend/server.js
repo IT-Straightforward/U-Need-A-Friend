@@ -29,8 +29,6 @@ try {
 }
 // ----------------------------------------------
 
-const games = {}; // Speichert aktive Spielinstanzen, gekeyed mit der Raum-ID
-
 const games = {}; 
 
 function shuffleArray(array) {
