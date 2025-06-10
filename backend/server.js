@@ -892,7 +892,7 @@ socket.on('player:setReadyStatus', ({ roomId, isReady }, callback) => {
         // Prüfen, ob dies eine "Bonusrunde" ist (jede 3. Runde)
         if (game.roundNumber > 0 && game.roundNumber % 3 === 0) {
           const awardedPiece = game.currentRound.currentTargetSymbol;
-          if (!game.collectedPieces) game.collectedPieces = []; // Sicherheitscheck
+          if (!game.collectedPieces) game.collectedPieces = [];
           game.collectedPieces.push(awardedPiece);
 
           console.log(
