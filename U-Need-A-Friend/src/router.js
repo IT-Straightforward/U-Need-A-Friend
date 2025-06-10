@@ -8,7 +8,7 @@ import { useGameSessionStore } from '@/stores/gameSessionStore';
 import { useRoomDefinitionsStore } from '@/stores/roomDefinitionsStore';
 
 const routes = [
-  { path: '/', redirect: '/join' },
+  { path: '/', redirect: '/create' },
   { path: '/join', component: JoinGame },
   { path: '/create', component: AdminPanel },
   {

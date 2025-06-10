@@ -13,10 +13,36 @@ const io = new Server(server, {
   },
 });
 
+const localIconPath = path.join(__dirname, '..', 'U-Need-A-Friend', 'src', 'assets', 'icons');
 const frontendPath = path.join(__dirname, 'public_frontend');
 const filePathToPredefinedRooms = path.join(__dirname, 'predefinedRooms.json');
-const ICONS_BASE_PATH = path.join(__dirname, 'assets_from_frontend', 'icons'); 
+const deployedIconPath = path.join(__dirname, 'assets_from_frontend', 'icons'); 
 app.use(express.static(frontendPath));
+let ICONS_BASE_PATH;
+if (process.env.NODE_ENV === 'production') {
+    // Diese Variable wird von den meisten Hosting-Providern automatisch gesetzt.
+    console.log("SERVER: Running in production mode. Using deployed icon path.");
+    ICONS_BASE_PATH = deployedIconPath;
+} else {
+    // Für die lokale Entwicklung.
+    console.log("SERVER: Running in development mode. Using local frontend source icon path.");
+    ICONS_BASE_PATH = localIconPath;
+}
+
+// Zusätzliche Sicherheitsprüfung, falls die Logik oben fehlschlägt.
+if (!fs.existsSync(ICONS_BASE_PATH)) {
+    console.warn(`WARNUNG: Der ausgewählte ICONS_BASE_PATH existiert nicht: ${ICONS_BASE_PATH}`);
+    // Fallback auf den anderen Pfad als letzte Rettung
+    const alternativePath = ICONS_BASE_PATH === localIconPath ? deployedIconPath : localIconPath;
+    if (fs.existsSync(alternativePath)) {
+        console.warn(`WARNUNG: Fallback auf alternativen Pfad: ${alternativePath}`);
+        ICONS_BASE_PATH = alternativePath;
+    } else {
+        console.error(`FATAL: Keiner der Icon-Pfade konnte gefunden werden. Weder "${ICONS_BASE_PATH}" noch "${alternativePath}" existieren.`);
+    }
+} else {
+    console.log(`SERVER: Successfully set ICONS_BASE_PATH to: ${ICONS_BASE_PATH}`);
+}
 
 let PREDEFINED_ROOM_CONFIGS = [];
 try {
