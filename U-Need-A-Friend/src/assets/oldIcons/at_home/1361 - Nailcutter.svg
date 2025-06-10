@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Creator: CorelDRAW -->
+<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="2048px" height="2048px" style="shape-rendering:geometricPrecision; text-rendering:geometricPrecision; image-rendering:optimizeQuality; fill-rule:evenodd; clip-rule:evenodd"
+viewBox="0 0 2048 2048"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+ <defs>
+  <style type="text/css">
+   <![CDATA[
+    .fil0 {fill:none}
+    .fil3 {fill:#3949AB;fill-rule:nonzero}
+    .fil2 {fill:#7986CB;fill-rule:nonzero}
+    .fil1 {fill:#E64A19;fill-rule:nonzero}
+   ]]>
+  </style>
+ </defs>
+ <g id="Layer_x0020_1">
+  <metadata id="CorelCorpID_0Corel-Layer"/>
+  <rect class="fil0" width="2048" height="2048"/>
+  <rect class="fil0" x="255.999" y="255.999" width="1536" height="1536"/>
+  <g id="_215728920">
+   <path id="_215738232" class="fil1" d="M485.281 1071.11c0,-25.4705 -20.6492,-46.1197 -46.1197,-46.1197 -25.4693,0 -46.1197,20.6492 -46.1197,46.1197l0 307.462c0,25.4705 20.6504,46.1197 46.1197,46.1197 25.4705,0 46.1197,-20.6492 46.1197,-46.1197l0 -307.462z"/>
+   <path id="_215721792" class="fil1" d="M511.583 1152.48c-22.9831,10.9453 -32.7425,38.4508 -21.7973,61.4339 10.9441,22.9819 38.4496,32.7414 61.4327,21.7973l1167.71 -555.85c22.9831,-10.9441 32.7425,-38.4508 21.7984,-61.4327 -10.9453,-22.9831 -38.4508,-32.7425 -61.4339,-21.7984l-1167.71 555.85z"/>
+   <polygon id="_215733624" class="fil2" points="258.262,1234.71 292.033,1144.98 305.444,1109.34 342.835,1115.79 1780.79,1363.93 1765.3,1454.73 364.734,1213.04 344.375,1267.14 "/>
+   <polygon id="_215740800" class="fil3" points="347.158,1313.26 354.133,1363.95 1792,1363.38 1792,1455.26 314.033,1455.84 273.933,1455.86 268.454,1416.03 255.999,1325.51 "/>
+  </g>
+ </g>
+</svg>

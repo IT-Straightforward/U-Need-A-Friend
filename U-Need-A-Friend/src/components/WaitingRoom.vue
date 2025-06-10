@@ -45,7 +45,7 @@
 
 <script setup>
 // In U-Need-A-Friend/src/components/WaitingRoom.vue
-import { ref, reactive, onMounted, onUnmounted, computed, nextTick, inject } from 'vue'; // <<< 'inject' HINZUGEFÜGT
+import { ref, reactive, onMounted, onUnmounted, computed, nextTick, inject, watch } from 'vue'; // <<< 'inject' HINZUGEFÜGT
 import { useGameSessionStore } from '@/stores/gameSessionStore';
 import { useRouter } from 'vue-router';
 import bubbleBluePath from '@/assets/bubble-blue.png'; 
@@ -129,6 +129,14 @@ const computedRoomStyle = computed(() => ({
   position: 'relative',
   overflow: 'hidden',
 }));
+
+watch(roomBGColor, (newColor) => {
+  if (newColor) {
+    document.body.style.backgroundColor = newColor;
+    // Fügt auch einen sanften Übergang hinzu
+    document.body.style.transition = 'background-color 0.5s ease';
+  }
+}, { immediate: true });
 
 function updateBubblePositions() {
   if (!containerRef.value) return;
@@ -309,6 +317,9 @@ onUnmounted(() => {
   socket.off('gameNotFound', handleGameNotFound);
   socket.off('lobby:countdownStarted', handleLobbyCountdownStarted);
   socket.off('lobby:countdownCancelled', handleLobbyCountdownCancelled);
+
+   document.body.style.backgroundColor = ''; // Setzt den Stil zurück
+  document.body.style.transition = '';
 });
 
 function toggleReadyStatus() {

@@ -95,6 +95,8 @@ function shuffleArray(array) {
  * @param {string} themeFolder - Der Name des Theme-Ordners (z.B. 'zoo', 'foodcourt').
  * @returns {string[]} Ein Array von Symbol-Identifiern oder ein leeres Array bei Fehler.
  */
+// In server.js
+
 function getSymbolPoolForTheme(themeFolder) {
   const specificThemePath = path.join(ICONS_BASE_PATH, themeFolder);
   let pool = [];
@@ -103,65 +105,47 @@ function getSymbolPoolForTheme(themeFolder) {
     if (fs.existsSync(specificThemePath)) {
       const files = fs.readdirSync(specificThemePath);
       pool = files
-        .filter(file => file.toLowerCase().endsWith('.svg'))
-        .map(file => path.basename(file, '.svg'));
+        // GEÄNDERT: Suche jetzt nach .png statt .svg
+        .filter(file => file.toLowerCase().endsWith('.png')) 
+        // GEÄNDERT: Entferne die .png Endung
+        .map(file => path.basename(file, '.png')); 
       if (pool.length > 0) {
-        console.log(
-          `[Server] Loaded ${pool.length} icons for theme '${themeFolder}' from ${specificThemePath}`
-        );
-        return pool; // Gibt themenspezifische Icons zurück, falls gefunden
+        console.log(`[Server] Loaded ${pool.length} icons for theme '${themeFolder}'`);
+        return pool;
       } else {
-        console.warn(
-          `[Server] No .svg files found in theme folder: ${specificThemePath}. Attempting fallback.`
-        );
+        console.warn(`[Server] No .png files found in theme folder: ${specificThemePath}. Attempting fallback.`);
       }
     } else {
-      console.warn(
-        `[Server] Theme folder path does not exist: ${specificThemePath}. Attempting fallback.`
-      );
+      console.warn(`[Server] Theme folder path does not exist: ${specificThemePath}. Attempting fallback.`);
     }
   } catch (error) {
-    console.error(
-      `[Server] Error reading icon folder for theme '${themeFolder}':`,
-      error,
-      `Attempting fallback.`
-    );
+    console.error(`[Server] Error reading icon folder for theme '${themeFolder}':`, error, `Attempting fallback.`);
   }
 
-  // Fallback zu 'default', wenn themenspezifische Icons nicht gefunden, leer oder Fehler
-  console.log(
-    `[Server] Falling back to default icon pool (requested for theme '${themeFolder}').`
-  );
+  // Fallback zu 'default'
+  console.log(`[Server] Falling back to default icon pool (requested for theme '${themeFolder}').`);
   const defaultThemePath = path.join(ICONS_BASE_PATH, 'default');
   try {
     if (fs.existsSync(defaultThemePath)) {
       const files = fs.readdirSync(defaultThemePath);
       const defaultPool = files
-        .filter(file => file.toLowerCase().endsWith('.svg'))
-        .map(file => path.basename(file, '.svg'));
+        // GEÄNDERT: Suche jetzt nach .png statt .svg
+        .filter(file => file.toLowerCase().endsWith('.png'))
+        // GEÄNDERT: Entferne die .png Endung
+        .map(file => path.basename(file, '.png'));
       if (defaultPool.length > 0) {
-        console.log(
-          `[Server] Loaded ${defaultPool.length} icons from default theme folder as fallback.`
-        );
+        console.log(`[Server] Loaded ${defaultPool.length} icons from default theme folder as fallback.`);
         return defaultPool;
       } else {
-        console.warn(
-          `[Server] Warning: No .svg files found in default fallback icon folder: ${defaultThemePath}. Final pool will be empty.`
-        );
+        console.warn(`[Server] Warning: No .png files found in default fallback icon folder. Final pool will be empty.`);
         return [];
       }
     } else {
-      console.error(
-        `[Server] Error: Default icon folder path does not exist for fallback: ${defaultThemePath}. Final pool will be empty.`
-      );
+      console.error(`[Server] Error: Default icon folder path does not exist for fallback. Final pool will be empty.`);
       return [];
     }
   } catch (error) {
-    console.error(
-      `[Server] Error reading default icon folder for fallback:`,
-      error,
-      `Final pool will be empty.`
-    );
+    console.error(`[Server] Error reading default icon folder for fallback:`, error, `Final pool will be empty.`);
     return [];
   }
 }
@@ -894,7 +878,7 @@ socket.on('player:setReadyStatus', ({ roomId, isReady }, callback) => {
         const sourcePlayer = game.players.find(
           p => p.id === game.currentRound.sourceId
         );
-        const feedbackMessage = `Well Done! You found a Piece!`;
+        const feedbackMessage = `Correct!`;
 
         console.log(
           `[Game ${gameId}] Player ${player.id} (target) pressed CORRECT symbol.`
