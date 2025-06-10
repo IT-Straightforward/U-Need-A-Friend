@@ -914,7 +914,7 @@ socket.on('player:setReadyStatus', ({ roomId, isReady }, callback) => {
             game.isRunning = false; // Spiel anhalten
             io.to(gameId).emit('gameEnded', {
               reason: 'victory_pieces_collected',
-              message: 'Herzlichen Glückwunsch! Ihr habt alle Teile gesammelt!',
+              message: 'You completed the game by collecting all Pieces!',
               collectedPieces: game.collectedPieces,
             });
             setTimeout(() => {
