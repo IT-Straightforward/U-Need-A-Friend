@@ -15,7 +15,7 @@
     <button 
       class="bubble-base ready-bubble-button" 
       @click="toggleReadyStatus" 
-      :disabled="isTogglingReady || countdownTime !== null" 
+      :disabled="isTogglingReady" 
       :class="{'is-ready': myReadyStatus, 'disabled-during-countdown': countdownTime !== null}"
       :style="bubbles.readyButton.style">
       <span v-if="!isTogglingReady" class="bubble-text">
@@ -28,7 +28,6 @@
     <button 
       class="bubble-base leave-bubble-button" 
       @click="triggerLeaveGame" 
-      :disabled="countdownTime !== null && !gameIsOver"
       :style="bubbles.leaveButton.style">
       <span class="bubble-text">Verlassen</span>
     </button>
@@ -313,7 +312,7 @@ onUnmounted(() => {
 });
 
 function toggleReadyStatus() {
-  if (isTogglingReady.value || countdownTime.value !== null) return;
+  if (isTogglingReady.value) return; 
   isTogglingReady.value = true;
   const newReadyState = !myReadyStatus.value;
   socket.emit('player:setReadyStatus', { roomId: props.gameId, isReady: newReadyState }, (response) => {

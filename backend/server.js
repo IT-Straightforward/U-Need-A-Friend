@@ -554,54 +554,42 @@ socket.on("joinGame", ({ roomId }, callback) => {
       callback({ success: true, gameId: roomId, roomName: gameInstance.name });
 });
 
- socket.on('player:setReadyStatus', ({ roomId, isReady }, callback) => {
+// In server.js, innerhalb von io.on("connection", ...)
+
+socket.on('player:setReadyStatus', ({ roomId, isReady }, callback) => {
   const gameInstance = games[roomId];
   if (!gameInstance || !gameInstance.adminSocketId || gameInstance.started) {
-    return callback && callback({ success: false, error: 'Room not active or game has proceeded.' });
+    return callback && callback({ success: false, error: "Raum nicht aktiv oder Spiel hat bereits begonnen." });
   }
   const player = gameInstance.players.find(p => p.id === socket.id);
-  if (!player) { return callback && callback({ success: false, error: 'Player not found.' }); }
+  if (!player) { return callback && callback({ success: false, error: "Spieler nicht gefunden." }); }
 
   player.isReadyInLobby = !!isReady;
-  // GEÄNDERT: Log ohne Spielernamen
-  console.log(`[Game ${roomId}] Player with ID ${player.id} set ready status to: ${player.isReadyInLobby}`);
+  console.log(`[Game ${roomId}] Spieler ${player.id} Status: ${player.isReadyInLobby}`);
 
-  const playerListForUpdate = gameInstance.players.map(p => ({
-    id: p.id,
-    isReadyInLobby: p.isReadyInLobby,
-  }));
-  const updatePayload = {
-    players: playerListForUpdate,
-    gameId: roomId,
-    roomName: gameInstance.name,
-    pastelPalette: gameInstance.pastelPalette,
-    maxPlayers: gameInstance.maxPlayers,
-  };
-  io.to(roomId).emit('gameUpdate', updatePayload);
+  // UI bei allen Spielern aktualisieren (damit sie die Häkchen sehen)
+  const playerListForUpdate = gameInstance.players.map(p => ({ id: p.id, isReadyInLobby: p.isReadyInLobby }));
+  io.to(roomId).emit("gameUpdate", { players: playerListForUpdate, gameId: roomId });
+  
+  // --- AUTOMATISCHE COUNTDOWN-STEUERUNG ---
 
-  const readyCount = gameInstance.players.filter(p => p.isReadyInLobby).length;
-  if (gameInstance.adminSocketId) {
-    io.to(gameInstance.adminSocketId).emit('playerReadyUpdate', {
-      gameId: roomId,
-      playerId: player.id,
-      isReady: player.isReadyInLobby,
-      readyCount: readyCount,
-      totalPlayers: gameInstance.players.length,
-    });
-  }
-
-  // Countdown Logik
-  if (!player.isReadyInLobby && gameInstance.lobbyCountdownTimerId) {
-    console.log(`[Game ${roomId}] Player with ID ${player.id} un-readied. Cancelling countdown.`);
+  // 1. Countdown ABBRECHEN, wenn ein Spieler auf "nicht bereit" klickt
+  if (!isReady && gameInstance.lobbyCountdownTimerId) {
+    console.log(`[Game ${roomId}] Spieler ${player.id} hat 'Bereit' zurückgenommen. Countdown wird abgebrochen.`);
     clearInterval(gameInstance.lobbyCountdownTimerId);
     gameInstance.lobbyCountdownTimerId = null;
     gameInstance.lobbyCountdownEndTime = null;
-   
+    io.to(roomId).emit('lobby:countdownCancelled', { roomId, message: `Countdown abgebrochen, da ein Spieler nicht mehr bereit ist.` });
+  }
 
-    io.to(roomId).emit('lobby:countdownCancelled', {
-      roomId,
-      message: `A player is no longer ready. Countdown cancelled.`,
-    });
+  // 2. Prüfen, ob der Countdown GESTARTET werden soll
+  const readyCount = gameInstance.players.filter(p => p.isReadyInLobby).length;
+  const totalPlayers = gameInstance.players.length;
+  const allPlayersReady = totalPlayers > 0 && readyCount === totalPlayers;
+
+  if (allPlayersReady && totalPlayers >= 2) {
+    // Alle sind bereit, es gibt genug Spieler -> Starte den Countdown!
+    startLobbyCountdown(gameInstance);
   }
 
   if (callback) callback({ success: true, currentReadyStatus: player.isReadyInLobby });
@@ -1129,6 +1117,68 @@ socket.on('disconnect', () => {
   // --- Hilfsfunktionen ---
   // Innerhalb von io.on("connection", (socket) => { ... HIER });
 
+// In server.js
+
+/**
+ * Startet den 10-sekündigen Countdown für die Lobby, wenn nicht schon aktiv.
+ * @param {object} game - Die Spielinstanz.
+ */
+function startLobbyCountdown(game) {
+  // Verhindere, dass der Countdown mehrfach gestartet wird
+  if (!game || game.lobbyCountdownTimerId) {
+    return;
+  }
+
+  const roomId = game.id;
+  console.log(`[Game ${roomId}] Alle Spieler bereit. Automatischer 10s Countdown wird gestartet.`);
+  
+  // Setze die Endzeit für den Countdown
+  game.lobbyCountdownEndTime = Date.now() + 10000;
+  // Informiere alle Spieler, dass der Countdown beginnt
+  io.to(roomId).emit('lobby:countdownStarted', {
+    roomId,
+    duration: 10,
+    endTime: game.lobbyCountdownEndTime,
+  });
+
+  // Starte den serverseitigen Timer
+  game.lobbyCountdownTimerId = setInterval(() => {
+    const gameInstanceForInterval = games[roomId];
+    if (!gameInstanceForInterval || !gameInstanceForInterval.lobbyCountdownEndTime) {
+      if (gameInstanceForInterval?.lobbyCountdownTimerId) {
+        clearInterval(gameInstanceForInterval.lobbyCountdownTimerId);
+        gameInstanceForInterval.lobbyCountdownTimerId = null;
+      }
+      return;
+    }
+    
+    // Prüfen, ob der Countdown abgelaufen ist
+    if (Date.now() >= gameInstanceForInterval.lobbyCountdownEndTime) {
+      clearInterval(gameInstanceForInterval.lobbyCountdownTimerId);
+      gameInstanceForInterval.lobbyCountdownTimerId = null;
+      gameInstanceForInterval.lobbyCountdownEndTime = null;
+
+      // Finale Überprüfung: Sind immer noch alle bereit?
+      const stillAllReady = gameInstanceForInterval.players.every(p => p.isReadyInLobby);
+      if (stillAllReady && gameInstanceForInterval.players.length >= 2) {
+        console.log(`[Game ${roomId}] Countdown beendet. Spiel wird gestartet.`);
+        gameInstanceForInterval.started = true; // Spiel geht in die nächste Phase
+        gameInstanceForInterval.players.forEach(p => p.ready = false); // Asset-Ready-Status zurücksetzen
+        gameInstanceForInterval.readyPlayerCount = 0;
+
+        // Schicke alle Spieler zum Spielbildschirm
+        io.to(roomId).emit('goToGame', { gameId: roomId });
+        
+        if (gameInstanceForInterval.adminSocketId) {
+          io.to(gameInstanceForInterval.adminSocketId).emit('admin:gameInstanceStarted', { roomId, message: 'Spiel wurde automatisch gestartet.' });
+        }
+      } else {
+        console.log(`[Game ${roomId}] Countdown beendet, aber nicht mehr alle Spieler bereit. Start abgebrochen.`);
+        io.to(roomId).emit('lobby:countdownCancelled', { roomId, message: 'Start abgebrochen, da ein Spieler nicht mehr bereit war.' });
+      }
+    }
+  }, 1000);
+}
 
 function handlePlayerLeave(socket, roomId, explicitLeave) {
   const game = games[roomId];

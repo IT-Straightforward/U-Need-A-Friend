@@ -87,16 +87,6 @@
 
         <div class="admin-actions-for-room">
           <h4>Room Actions:</h4>
-          <button
-            v-if="!selectedRoomData.isRunning"
-            @click="triggerStartGame(selectedRoom.id)"
-            :disabled="selectedRoomData.players.length < 2 || startingGameId === selectedRoom.id"
-            class="action-button start-game-button">
-            {{ startingGameId === selectedRoom.id ? 'Starting...' : 'Start Game' }}
-          </button>
-          <button @click="triggerResetRoom(selectedRoom.id)" class="action-button reset-button" :disabled="resettingRoomId === selectedRoom.id">
-            {{ resettingRoomId === selectedRoom.id ? 'Resetting...' : 'Reset Room' }}
-          </button>
         </div>
 
         <div v-if="selectedRoomData.isRunning && currentRoundInfo.roundNumber" class="round-info-admin">
