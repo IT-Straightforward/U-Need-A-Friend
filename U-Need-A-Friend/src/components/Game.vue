@@ -41,7 +41,7 @@
 
       <p v-if="gameMessage" class="game-message" :class="{ 'error': isErrorMessage }">{{ gameMessage }}</p>
       <button v-if="!gameIsEffectivelyOver" class="leave-btn" @click="triggerLeaveGame">Leave Game</button>
-      <router-link v-else to="/join" class="leave-btn router-link-btn">Back to Lobby</router-link>
+      <router-link v-else to="/" class="leave-btn router-link-btn">Back to Start</router-link>
     </div>
   </main>
 </template>
@@ -76,14 +76,11 @@ const lastCorrectSymbol = ref('');
 const gameIsEffectivelyOver = ref(false);
 const collectedPieces = ref([]);
 const isPieceRound = ref(false);
-
-// +++ HINZUGEFÜGT: Refs für die Farbpalette mit Standardwerten +++
 const roomBgColor = ref('#fafafa');
 const roomPrimaryColor = ref('#e0e0e0');
-const roomAccent1 = ref('#5cb85c'); // Standard-Grün für Buttons
-const roomAccent2 = ref('#d9534f'); // Standard-Rot für Leave-Button
+const roomAccent1 = ref('#5cb85c');
+const roomAccent2 = ref('#d9534f');
 
-// +++ HINZUGEFÜGT: Computed Property, um die Farben als CSS-Variablen zu binden +++
 const computedContainerStyle = computed(() => ({
   '--bg-color': roomBgColor.value,
   '--primary-color': roomPrimaryColor.value,
@@ -93,8 +90,6 @@ const computedContainerStyle = computed(() => ({
 
 
 // --- Socket Event Handler ---
-
-
 const handleTeamAwardedPiece = (data) => {
     if (data.gameId === props.gameId && data.pieceIcon) {
         collectedPieces.value.push(data.pieceIcon);
@@ -102,7 +97,6 @@ const handleTeamAwardedPiece = (data) => {
         setTimeout(() => { gameMessage.value = `Runde ${data.currentRoundNumber || ''}`; }, 3000);
     }
 };
-
 
 const handleTeamLostPiece = (data) => {
   if (data.gameId === props.gameId) {
@@ -120,12 +114,11 @@ const handleGameStarted = (data) => {
   isErrorMessage.value = false;
   gameIsEffectivelyOver.value = false;
 
-  // +++ HINZUGEFÜGT: Farbwerte aus dem gameStarted-Event übernehmen +++
   if (data.pastelPalette) {
     roomBgColor.value = data.pastelPalette.primary;
-    roomPrimaryColor.value = data.pastelPalette.accent3; // z.B. hellster Ton für den Hintergrund
-    roomAccent1.value = data.pastelPalette.accent2; // z.B. Akzent für Buttons
-    roomAccent2.value = data.pastelPalette.accent1; // z.B. anderer Akzent für Leave-Button
+    roomPrimaryColor.value = data.pastelPalette.accent3;
+    roomAccent1.value = data.pastelPalette.accent2;
+    roomAccent2.value = data.pastelPalette.accent1;
   }
 };
 
@@ -134,15 +127,13 @@ const handleRoundUpdate = (data) => {
     isErrorMessage.value = false; gameIsEffectivelyOver.value = false;
     roleInCurrentRound.value = data.role;
     currentTargetSymbolForRound.value = data.currentTargetSymbol;
-    // NEU: Den Status der Bonusrunde aus den Daten übernehmen
-  isPieceRound.value = data.isPieceRound || false;
+    isPieceRound.value = data.isPieceRound || false;
 
-  // Passe die Nachricht für Bonusrunden an
-  if (isPieceRound.value) {
-    gameMessage.value = `Runde ${data.roundNumber || ''} - Chance auf ein Teil!`;
-  } else {
-    gameMessage.value = `Runde ${data.roundNumber || ''}`;
-  }
+    if (isPieceRound.value) {
+      gameMessage.value = `Runde ${data.roundNumber || ''} - Chance auf ein Teil!`;
+    } else {
+      gameMessage.value = `Runde ${data.roundNumber || ''}`;
+    }
 };
 
 const handleFeedback = (data) => {
@@ -163,9 +154,10 @@ const handleGameEnded = (data) => {
     roleInCurrentRound.value = 'inactive';
 };
 
+// GEÄNDERT: Die Nachricht ist jetzt anonym, da playerName nicht mehr gesendet wird.
 const handlePlayerLeftMidGame = (data) => {
     if (data.playerId !== ownPlayerId.value) {
-        gameMessage.value = `${data.playerName || 'A player'} has left the game.`;
+        gameMessage.value = `Ein Spieler hat das Spiel verlassen.`;
         isErrorMessage.value = false;
     }
 };
@@ -184,9 +176,8 @@ const initializeSocketListeners = () => {
     socket.on('playerLeftMidGame', handlePlayerLeftMidGame);
     socket.on('gameError', handleGameError);
     socket.on('teamAwardedPiece', handleTeamAwardedPiece);
-    socket.on('teamLostPiece', handleTeamLostPiece); 
+    socket.on('teamLostPiece', handleTeamLostPiece);
     socketListenersInitialized.value = true;
-  
 };
 
 const cleanupSocketListeners = () => {
@@ -197,7 +188,7 @@ const cleanupSocketListeners = () => {
     socket.off('playerLeftMidGame', handlePlayerLeftMidGame);
     socket.off('gameError', handleGameError);
     socket.off('teamAwardedPiece', handleTeamAwardedPiece);
-        socket.off('teamLostPiece', handleTeamLostPiece); 
+    socket.off('teamLostPiece', handleTeamLostPiece);
     socketListenersInitialized.value = false;
 };
 
@@ -223,11 +214,12 @@ function handlePress(pressedSymbol) {
   socket.emit('buttonPress', { gameId: props.gameId, pressedSymbol: pressedSymbol });
 }
 
+// GEÄNDERT: Leitet zur Startseite '/' statt zum nicht mehr existierenden '/join'
 function triggerLeaveGame() {
   if (!gameIsEffectivelyOver.value) {
     socket.emit('leaveGame', { gameId: props.gameId });
   }
-  router.replace('/join');
+  router.replace('/');
 }
 </script>
 
@@ -239,7 +231,6 @@ function triggerLeaveGame() {
   justify-content: center;
   align-items: center;
   min-height: 100dvh;
-  /* GEÄNDERT: Hintergrundfarbe wird jetzt durch CSS-Variable gesetzt */
   background: var(--bg-color, #fafafa);
   padding: 1rem;
   box-sizing: border-box;
@@ -253,7 +244,6 @@ function triggerLeaveGame() {
   display: flex;
   gap: 1rem;
   padding: 0.75rem;
-  /* GEÄNDERT: Hintergrundfarbe wird jetzt durch CSS-Variable gesetzt */
   background-color: var(--primary-color, #e0e0e0);
   border-radius: 12px;
   box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
@@ -274,19 +264,13 @@ function triggerLeaveGame() {
   font-weight: bold;
 }
 
-.piece-slot .game-svg-icon {
-  max-width: 90%;
-  max-height: 90%;
-  margin: 0;
-}
-
-.placeholder-icon {
-  user-select: none;
-}
+.piece-slot .game-svg-icon { max-width: 90%; max-height: 90%; margin: 0; }
+.placeholder-icon { user-select: none; }
 
 /* --- Device-Box und Display --- */
+/* ... andere Styles ... */
+
 .device-box {
-  /* GEÄNDERT: Hintergrundfarbe wird jetzt durch CSS-Variable gesetzt */
   background: var(--primary-color, #f0f0f0);
   width: 90vw;
   max-width: 360px;
@@ -297,6 +281,7 @@ function triggerLeaveGame() {
   flex-direction: column;
   align-items: center;
   gap: 1.5rem;
+  /* KEINE Animation hier */
 }
 
 .display-area {
@@ -310,40 +295,34 @@ function triggerLeaveGame() {
   color: #00ff99;
   font-weight: bold;
   letter-spacing: 2px;
+  transition: box-shadow 0.5s ease-in-out;
 }
+
+/* Die Klasse für den Glüh-Effekt wirkt jetzt korrekt nur auf .display-area */
 .display-area.is-piece-round {
-  /* Weist eine pulsierende Glüh-Animation zu */
   animation: pulse-gold-glow 2.5s infinite ease-in-out;
 }
 
-/* Die Keyframe-Animation für das Glühen */
+/* Die Keyframe-Animation (nur einmal definieren!) */
 @keyframes pulse-gold-glow {
   0%, 100% {
-    /* Start- und Endzustand: der normale Schatten */
-    box-shadow: 0 0 24px rgba(0,0,0,0.15);
+    /* Kein zusätzlicher Schatten im Normalzustand */
+    box-shadow: none;
   }
   50% {
-    /* Mittelpunkt der Animation: ein starker, goldener Glüh-Effekt */
-    box-shadow: 0 0 40px rgba(255, 215, 0, 0.9), 0 0 25px rgba(255, 255, 255, 0.7);
+    /* Der goldene Glüh-Effekt */
+    box-shadow: 0 0 35px rgba(255, 215, 0, 0.8), 0 0 20px rgba(255, 223, 100, 0.6);
   }
 }
 
-.display-symbol {
-  font-size: 2.5rem;
-}
+/* ... der Rest deiner Styles ... */
+.display-symbol { font-size: 2.5rem; }
 
 /* --- Punkte-Animation --- */
-.dots-animation-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 12px;
-}
-
+.dots-animation-container { display: flex; justify-content: center; align-items: center; gap: 12px; }
 .dot {
   display: block;
-  width: 15px;
-  height: 15px;
+  width: 15px; height: 15px;
   border-radius: 50%;
   background-color: #282828;
   animation-name: light-up-dot;
@@ -351,13 +330,11 @@ function triggerLeaveGame() {
   animation-iteration-count: infinite;
   animation-timing-function: ease-in-out;
 }
-
 @keyframes light-up-dot {
   0%, 100% { background-color: #282828; transform: scale(1); box-shadow: none; }
   20% { background-color: #00ff99; transform: scale(1.2); box-shadow: 0 0 10px #00ff99, 0 0 5px rgba(255, 255, 255, 0.5); }
   40% { background-color: #282828; transform: scale(1); box-shadow: none; }
 }
-
 .dot:nth-child(1) { animation-delay: 0s; }
 .dot:nth-child(2) { animation-delay: 0.1s; }
 .dot:nth-child(3) { animation-delay: 0.2s; }
@@ -365,15 +342,8 @@ function triggerLeaveGame() {
 .dot:nth-child(5) { animation-delay: 0.4s; }
 
 /* --- Buttons und Nachrichten --- */
-.button-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1rem;
-  width: 100%;
-}
-
+.button-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; width: 100%; }
 .button {
-  /* GEÄNDERT: Hintergrundfarbe wird jetzt durch CSS-Variable gesetzt */
   background: var(--accent-color-1, #5cb85c);
   color: white;
   font-size: 1.75rem;
@@ -390,18 +360,15 @@ function triggerLeaveGame() {
   min-height: 80px;
   min-width: 80px;
 }
-
 .button:disabled { background-color: #aaa !important; cursor: not-allowed !important; opacity: 0.7; }
 .button:not(:disabled):active { transform: scale(0.95); filter: brightness(0.9); }
 .button.correct { background-color: #28a745 !important; }
 .button.incorrect { background-color: #dc3545 !important; animation: shake 0.5s; }
-
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
   25% { transform: translateX(-5px); }
   75% { transform: translateX(5px); }
 }
-
 .game-message {
   font-size: 1.1rem;
   color: #333;
@@ -413,11 +380,8 @@ function triggerLeaveGame() {
   width:100%;
   font-weight: bold;
 }
-
 .game-message.error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-
 .leave-btn {
-  /* GEÄNDERT: Hintergrundfarbe wird jetzt durch CSS-Variable gesetzt */
   background: var(--accent-color-2, #d9534f);
   color: white;
   font-size: 1rem;
@@ -432,6 +396,5 @@ function triggerLeaveGame() {
   text-align:center;
   box-sizing: border-box;
 }
-
 .leave-btn:hover { filter: brightness(0.9); }
 </style>

@@ -39,7 +39,7 @@
 
     <div v-if="gameIsOver" class="game-over-overlay">
       <p class="game-over-text">{{ statusMessage }}</p>
-      <router-link to="/join" class="bubble-base back-to-join-bubble-gameover">Zurück</router-link>
+      <router-link to="/" class="bubble-base back-to-join-bubble-gameover">Zurück</router-link>
     </div>
   </div>
 </template>
@@ -49,7 +49,7 @@
 import { ref, reactive, onMounted, onUnmounted, computed, nextTick, inject } from 'vue'; // <<< 'inject' HINZUGEFÜGT
 import { useGameSessionStore } from '@/stores/gameSessionStore';
 import { useRouter } from 'vue-router';
-import bubbleBluePath from '@/assets/bubble-blue.png'; // Vite Alias @/ für src/
+import bubbleBluePath from '@/assets/bubble-blue.png'; 
 import bubbleGreenPath from '@/assets/bubble-green.png';
 import bubbleYellowPath from '@/assets/bubble-yellow.png';
 import bubbleRedPath from '@/assets/bubble-red.png';
@@ -187,21 +187,21 @@ const handleGameUpdate = (data) => {
       gameSessionStore.setCurrentTheme(data.iconThemeFolder);
     }
     
+    /*
     const me = players.value.find(p => p.id === ownSocketId.value);
     if (me) {
       myReadyStatus.value = me.isReadyInLobby;
-    } else {
-     // ToDo
     }
+    */
 
     // Logik für statusMessage basierend auf Spieleranzahl und Ready-Status
-    if (countdownTime.value === null && !gameIsOver.value) {
+     if (countdownTime.value === null && !gameIsOver.value) {
         if (data.message) {
             statusMessage.value = data.message;
         } else {
-            const allReady = players.value.length > 0 && players.value.every(p => p.isReadyInLobby);
-            if (allReady && players.value.length >= 2) { // Mindestens 2 Spieler für "Alle bereit"
-                 statusMessage.value = 'Alle bereit! Countdown startet gleich...';
+            const readyCount = players.value.filter(p => p.isReadyInLobby).length;
+            if (readyCount === players.value.length && players.value.length >= 2) {
+                statusMessage.value = 'Alle bereit! Countdown startet gleich...';
             } else if (players.value.length > 0) {
                 statusMessage.value = 'Warte auf Bereitschaft aller Spieler...';
             } else {
@@ -269,9 +269,19 @@ onMounted(async () => {
 
   socket.emit('requestInitialLobbyState', { gameId: props.gameId }); 
 
-  await nextTick(); // Stellt sicher, dass das DOM gerendert wurde
+socket.emit('joinGame', { roomId: props.gameId }, (response) => {
+  if (response && response.success) {
+  
+    console.log(`[WaitingRoom] Successfully joined game ${props.gameId}.`);
+  } else {
+  
+    statusMessage.value = `Beitritt fehlgeschlagen: ${response.error || 'Unbekannter Fehler'}`;
+    gameIsOver.value = true; 
+  }
+});
+  await nextTick(); 
   if (containerRef.value) {
-    // Initiale Positionen etwas zufälliger im Container verteilen
+    
     const cWidth = containerRef.value.clientWidth;
     const cHeight = containerRef.value.clientHeight;
 
@@ -308,15 +318,15 @@ function toggleReadyStatus() {
   const newReadyState = !myReadyStatus.value;
   socket.emit('player:setReadyStatus', { roomId: props.gameId, isReady: newReadyState }, (response) => {
     isTogglingReady.value = false;
-    if (response && response.success) { 
-        // myReadyStatus wird durch 'gameUpdate' aktualisiert
-        // Hier könnte ein direktes UI-Feedback für den Klicker erfolgen, wenn gewünscht
-    } else { 
-      statusMessage.value = `Fehler: ${response?.error || 'Status konnte nicht gesetzt werden.'}`; 
+    if (response && response.success) {
+      myReadyStatus.value = response.currentReadyStatus;
+    } else {
+      statusMessage.value = `Fehler: ${response?.error || 'Status konnte nicht gesetzt werden.'}`;
     }
-    updateBubbleDynamicStyles(); // Um ggf. Bild des Ready-Buttons zu aktualisieren
+    updateBubbleDynamicStyles();
   });
 }
+
 
 function triggerLeaveGame() {
   if (!gameIsOver.value) {
@@ -324,7 +334,7 @@ function triggerLeaveGame() {
     countdownTime.value = null;
     socket.emit('leaveGame', { gameId: props.gameId });
   }
-  router.push('/join'); 
+  router.push('/'); 
 }
 </script>
 
