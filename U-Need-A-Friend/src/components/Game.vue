@@ -198,15 +198,57 @@ const cleanupSocketListeners = () => {
     socketListenersInitialized.value = false;
 };
 
+// In Game.vue -> <script setup>
+
 onMounted(() => {
+  initializeSocketListeners(); // Listener wie gehabt initialisieren
+
   if (props.gameId) {
-    initializeSocketListeners();
-    socket.emit('playerReadyForGame', { gameId: props.gameId });
+    // Hole die beständige Spieler-ID aus dem Speicher
+    const persistentPlayerId = sessionStorage.getItem('myGamePlayerId');
+    console.log(`[Game.vue] LESE persistent ID aus sessionStorage: ${persistentPlayerId}`);
+    // Wenn keine ID da ist, kann der Spieler nicht im Spiel sein. Zurück zur Startseite.
+    if (!persistentPlayerId) {
+      console.error("[Game.vue] No persistent player ID found. Cannot rejoin game directly. Redirecting to home.");
+      router.replace('/');
+      return;
+    }
+
+    // Sende das joinGame-Event, um dich wieder mit dem Spiel zu verbinden
+    console.log(`[Game.vue] Attempting to reconnect to game ${props.gameId}`);
+    socket.emit('joinGame', {
+      roomId: props.gameId,
+      persistentPlayerId: persistentPlayerId
+    }, (response) => {
+      
+      if (response && response.success) {
+        console.log("[Game.vue] Reconnect successful.");
+
+        // Wenn der Server den Spielstand mitschickt, lade ihn, um die UI wiederherzustellen
+        if (response.gameState) {
+          // Wir verwenden die handleGameStarted-Funktion, um den Basiszustand zu setzen
+          handleGameStarted(response.gameState);
+          
+          // Wenn das Spiel schon lief, auch den Rundenstatus wiederherstellen
+          if(response.gameState.currentRound) {
+            handleRoundUpdate(response.gameState.currentRound);
+          }
+        }
+        
+        // Melde dem Server, dass dieses Frontend jetzt bereit für weitere Events ist
+        socket.emit('playerReadyForGame', { gameId: props.gameId });
+
+      } else {
+        // Wiederverbindung fehlgeschlagen (z.B. Spiel wurde inzwischen beendet)
+        console.error("Failed to reconnect:", response.error);
+        alert("Konnte nicht wieder mit dem Spiel verbinden. Es wurde möglicherweise beendet.");
+        router.replace('/'); 
+      }
+    });
+
   } else {
-    console.error(`[Game MOUNTED] gameId prop is missing! Cannot initialize.`);
-    gameMessage.value = 'CRITICAL ERROR: Game ID not available. Please rejoin.';
-    isErrorMessage.value = true;
-    gameIsEffectivelyOver.value = true;
+    console.error(`[Game.vue MOUNTED] gameId prop is missing! Redirecting.`);
+    router.replace('/');
   }
 });
 

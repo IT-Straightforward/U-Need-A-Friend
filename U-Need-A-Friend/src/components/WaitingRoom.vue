@@ -15,7 +15,7 @@
     <button 
       class="bubble-base ready-bubble-button" 
       @click="toggleReadyStatus" 
-      :disabled="isTogglingReady" 
+      :disabled="isJoining || isTogglingReady" 
       :class="{'is-ready': myReadyStatus, 'disabled-during-countdown': countdownTime !== null}"
       :style="bubbles.readyButton.style">
       <span v-if="!isTogglingReady" class="bubble-text">
@@ -44,8 +44,7 @@
 </template>
 
 <script setup>
-// In U-Need-A-Friend/src/components/WaitingRoom.vue
-import { ref, reactive, onMounted, onUnmounted, computed, nextTick, inject, watch } from 'vue'; // <<< 'inject' HINZUGEFÜGT
+import { ref, reactive, onMounted, onUnmounted, computed, nextTick, inject, watch } from 'vue';
 import { useGameSessionStore } from '@/stores/gameSessionStore';
 import { useRouter } from 'vue-router';
 import bubbleBluePath from '@/assets/bubble-blue.png'; 
@@ -53,46 +52,32 @@ import bubbleGreenPath from '@/assets/bubble-green.png';
 import bubbleYellowPath from '@/assets/bubble-yellow.png';
 import bubbleRedPath from '@/assets/bubble-red.png';
 
-
 const props = defineProps({
-  gameId: { // Dies ist die roomId
-    type: String,
-    required: true
-  }
+  gameId: { type: String, required: true }
 });
 
 const socket = inject('socket');
 const router = useRouter();
 const gameSessionStore = useGameSessionStore(); 
 
-// Refs für den Client-Zustand
+// --- Zustand ---
 const players = ref([]);
-const ownSocketId = ref('');
 const roomDisplayName = ref(''); 
 const roomBGColor = ref('#cfcfcf');
 const roomAccentColor1 = ref('#e8e8e8');
 const roomAccentColor2 = ref('#dcdcdc');
 const roomAccentColor3 = ref('#f5f5f5');
 const maxPlayersInRoom = ref(null); 
-const statusMessage = ref('Warteraum wird geladen...');
+const statusMessage = ref('Trete dem Spiel bei...');
 const gameIsOver = ref(false);
 const myReadyStatus = ref(false); 
 const isTogglingReady = ref(false); 
+const isJoining = ref(true); 
 const countdownTime = ref(null); 
 const countdownEndTime = ref(null);
 let localCountdownIntervalId = null;
 let animationFrameId = null;
-
-// --- Bubble Animations-Setup ---
-const containerRef = ref(null); // Ref für den Hauptcontainer
-
-// Reaktives Objekt für die Eigenschaften und Styles der Bubbles
-// WICHTIG: Passe die `imagePath` hier an deine tatsächlichen Bildpfade an!
-// Vite Aliase wie '@/' funktionieren hier direkt im String nicht, wenn sie nicht speziell aufgelöst werden.
-// Am sichersten ist es, die Bilder im `public` Ordner zu haben und mit `/bild.png` zu referenzieren,
-// oder den Import-Mechanismus für Assets zu nutzen, wenn sie in `src/assets` sind (siehe CSS unten).
-// Für dieses Beispiel gehe ich davon aus, die Bilder sind im `public` Ordner oder werden korrekt aufgelöst.
-// Alternativ kann man die background-image Eigenschaft direkt im :style setzen oder CSS-Klassen verwenden.
+const containerRef = ref(null);
 
 const bubbles = reactive({
   playerCount: { x: 200, y: 50, vx: 0.25, vy: 0.35, width: 100, height: 100, imagePath: bubbleBluePath, style: {} }, 
@@ -100,25 +85,7 @@ const bubbles = reactive({
   leaveButton: { x: 100, y: 250, vx: 0.2, vy: -0.3, width: 120, height: 120, imagePath: bubbleRedPath, style: {} }
 });
 
-// Funktion, um die Inline-Styles für jede Bubble zu generieren
-function updateBubbleDynamicStyles() {
-  for (const key in bubbles) {
-    const bubble = bubbles[key];
-    let currentImage = bubble.imagePath;
-    if (key === 'readyButton' && myReadyStatus.value && bubble.readyImagePath) {
-      currentImage = bubble.readyImagePath;
-    }
-    bubbles[key].style = {
-      position: 'absolute',
-      top: `${bubble.y}px`,
-      left: `${bubble.x}px`,
-      width: `${bubble.width}px`,
-      height: `${bubble.height}px`,
-      backgroundImage: `url(${currentImage})`, // Pfad zum Bild
-    };
-  }
-}
-
+// --- Computed & Watcher ---
 const computedRoomStyle = computed(() => ({
   backgroundColor: roomBGColor.value,
   '--accent1': roomAccentColor1.value,
@@ -133,197 +100,220 @@ const computedRoomStyle = computed(() => ({
 watch(roomBGColor, (newColor) => {
   if (newColor) {
     document.body.style.backgroundColor = newColor;
-    // Fügt auch einen sanften Übergang hinzu
     document.body.style.transition = 'background-color 0.5s ease';
   }
 }, { immediate: true });
 
-function updateBubblePositions() {
-  if (!containerRef.value) return;
-
-  const containerWidth = containerRef.value.clientWidth;
-  const containerHeight = containerRef.value.clientHeight;
-
+// --- Methoden & Handler ---
+function updateBubbleDynamicStyles() {
   for (const key in bubbles) {
     const bubble = bubbles[key];
+    let currentImage = bubble.imagePath;
+    if (key === 'readyButton' && myReadyStatus.value && bubble.readyImagePath) {
+      currentImage = bubble.readyImagePath;
+    }
+    bubbles[key].style = {
+      position: 'absolute',
+      top: `${bubble.y}px`,
+      left: `${bubble.x}px`,
+      width: `${bubble.width}px`,
+      height: `${bubble.height}px`,
+      backgroundImage: `url(${currentImage})`,
+    };
+  }
+}
 
+function updateBubblePositions() {
+  if (!containerRef.value) return;
+  const containerWidth = containerRef.value.clientWidth;
+  const containerHeight = containerRef.value.clientHeight;
+  for (const key in bubbles) {
+    const bubble = bubbles[key];
     bubble.x += bubble.vx;
     bubble.y += bubble.vy;
-
-    // Kollision und Abprallen
-    if (bubble.x + bubble.width > containerWidth) {
-      bubble.x = containerWidth - bubble.width;
-      bubble.vx *= -1;
-    } else if (bubble.x < 0) {
-      bubble.x = 0;
-      bubble.vx *= -1;
-    }
-
-    if (bubble.y + bubble.height > containerHeight) {
-      bubble.y = containerHeight - bubble.height;
-      bubble.vy *= -1;
-    } else if (bubble.y < 0) {
-      bubble.y = 0;
-      bubble.vy *= -1;
-    }
+    if (bubble.x + bubble.width > containerWidth || bubble.x < 0) bubble.vx *= -1;
+    if (bubble.y + bubble.height > containerHeight || bubble.y < 0) bubble.vy *= -1;
   }
-  updateBubbleDynamicStyles(); // Aktualisiere die Inline-Styles nach Positionsänderung
+  updateBubbleDynamicStyles();
   animationFrameId = requestAnimationFrame(updateBubblePositions);
 }
 
-// --- Socket Event Handler ---
 const handleGameUpdate = (data) => {
-  console.log("[WaitingRoom] Received gameUpdate data:", JSON.parse(JSON.stringify(data)));
-
-  if (data.gameId === props.gameId) {
-    if (data.roomName) roomDisplayName.value = data.roomName;
-    if (data.maxPlayers !== undefined) maxPlayersInRoom.value = data.maxPlayers;
-    if (data.pastelPalette) {
-      roomBGColor.value = data.pastelPalette.primary;
-      roomAccentColor1.value = data.pastelPalette.accent1;
-       roomAccentColor2.value = data.pastelPalette.accent2;
-        roomAccentColor3.value = data.pastelPalette.accent3;
-    }
-
-   
-    if (data.players !== undefined) { 
-      players.value = data.players;
-    }
-
-    if (data.iconThemeFolder) {
-      gameSessionStore.setCurrentTheme(data.iconThemeFolder);
-    }
-    
-    /*
-    const me = players.value.find(p => p.id === ownSocketId.value);
-    if (me) {
-      myReadyStatus.value = me.isReadyInLobby;
-    }
-    */
-
-    // Logik für statusMessage basierend auf Spieleranzahl und Ready-Status
-     if (countdownTime.value === null && !gameIsOver.value) {
-        if (data.message) {
-            statusMessage.value = data.message;
-        } else {
-            const readyCount = players.value.filter(p => p.isReadyInLobby).length;
-            if (readyCount === players.value.length && players.value.length >= 2) {
-                statusMessage.value = 'Alle bereit! Countdown startet gleich...';
-            } else if (players.value.length > 0) {
-                statusMessage.value = 'Warte auf Bereitschaft aller Spieler...';
-            } else {
-                statusMessage.value = 'Du bist in der Lobby.';
-            }
-        }
-    }
-    updateBubbleDynamicStyles();
-
+  if (data.gameId !== props.gameId) return;
+  if (data.roomName) roomDisplayName.value = data.roomName;
+  if (data.maxPlayers !== undefined) maxPlayersInRoom.value = data.maxPlayers;
+  if (data.pastelPalette) {
+    roomBGColor.value = data.pastelPalette.primary;
+    roomAccentColor1.value = data.pastelPalette.accent1;
+    roomAccentColor2.value = data.pastelPalette.accent2;
+    roomAccentColor3.value = data.pastelPalette.accent3;
   }
+  if (data.players !== undefined) {
+    players.value = data.players;
+    const me = players.value.find(p => p.id === socket.id);
+    if (me) myReadyStatus.value = me.isReadyInLobby;
+  }
+  if (data.message && countdownTime.value === null && !gameIsOver.value) {
+    statusMessage.value = data.message;
+  } else if (countdownTime.value === null && !gameIsOver.value) {
+      const readyCount = players.value.filter(p => p.isReadyInLobby).length;
+      if (readyCount === players.value.length && players.value.length >= 2) {
+          statusMessage.value = 'Alle bereit! Countdown startet gleich...';
+      } else if (players.value.length > 0) {
+          statusMessage.value = 'Warte auf Bereitschaft aller Spieler...';
+      } else {
+          statusMessage.value = 'Du bist in der Lobby.';
+      }
+  }
+  updateBubbleDynamicStyles();
 };
-const handleGoToGame = (data) => { /* ... wie zuvor ... */ 
+
+const handleGoToGame = (data) => {
   if (data.gameId === props.gameId) {
-    if(localCountdownIntervalId) clearInterval(localCountdownIntervalId); 
-    countdownTime.value = null;
+    if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
     router.push(`/game/${props.gameId}`);
   }
 };
-const handleLobbyCountdownStarted = (data) => { /* ... wie zuvor ... */ 
+
+const handleLobbyCountdownStarted = (data) => {
   if (data.roomId === props.gameId) {
     countdownEndTime.value = data.endTime;
-    countdownTime.value = data.duration;
-    statusMessage.value = ""; 
+    statusMessage.value = "";
     if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
-    localCountdownIntervalId = setInterval(() => {
-      if (countdownEndTime.value === null) { clearInterval(localCountdownIntervalId); localCountdownIntervalId = null; return; }
+    
+    const tick = () => {
+      if (countdownEndTime.value === null) {
+        if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
+        localCountdownIntervalId = null;
+        return;
+      }
       const remaining = Math.max(0, Math.round((countdownEndTime.value - Date.now()) / 1000));
       countdownTime.value = remaining;
-      if (remaining <= 0) { clearInterval(localCountdownIntervalId); localCountdownIntervalId = null; }
-    }, 1000);
+      if (remaining <= 0) {
+        if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
+        localCountdownIntervalId = null;
+      }
+    };
+    tick();
+    localCountdownIntervalId = setInterval(tick, 1000);
   }
 };
-const handleLobbyCountdownCancelled = (data) => { /* ... wie zuvor ... */ 
+
+const handleLobbyCountdownCancelled = (data) => {
   if (data.roomId === props.gameId) {
     if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
-    localCountdownIntervalId = null; countdownTime.value = null; countdownEndTime.value = null;
+    localCountdownIntervalId = null;
+    countdownTime.value = null;
+    countdownEndTime.value = null;
     statusMessage.value = data.message || 'Countdown abgebrochen.';
   }
 };
-const handleGameCancelledOrEnded = (data, type = "ended") => { /* ... wie zuvor ... */ 
-  let msg = '';
-  if (type === "cancelled") msg = data.message || 'Das Spiel wurde abgebrochen.';
-  else msg = `Sitzung beendet: ${data.message || data.reason}`;
+
+const handleGameCancelledOrEnded = (data, type = "ended") => {
+  let msg = (type === "cancelled")
+    ? (data.message || 'Das Spiel wurde abgebrochen.')
+    : `Sitzung beendet: ${data.message || data.reason}`;
   if (!data.gameId || data.gameId === props.gameId) {
     if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
-    countdownTime.value = null; statusMessage.value = msg; gameIsOver.value = true;
+    countdownTime.value = null;
+    statusMessage.value = msg;
+    gameIsOver.value = true;
   }
 };
-const handleGameNotFound = (data) => { /* ... wie zuvor ... */ 
+
+const handleGameNotFound = (data) => {
   statusMessage.value = data.message || `Raum ${props.gameId} nicht gefunden oder inaktiv.`;
   gameIsOver.value = true;
 };
 
+// In WaitingRoom.vue -> <script setup>
 
 onMounted(async () => {
-  ownSocketId.value = socket.id;
-  // ... (socket.on Handler registrieren wie zuvor) ...
+  // Listener für eingehende Events registrieren
   socket.on('gameUpdate', handleGameUpdate);
   socket.on('goToGame', handleGoToGame);
-  socket.on('gameCancelled', (data) => handleGameCancelledOrEnded(data, "cancelled"));
   socket.on('gameEnded', (data) => handleGameCancelledOrEnded(data, "ended"));
   socket.on('gameNotFound', handleGameNotFound);
   socket.on('lobby:countdownStarted', handleLobbyCountdownStarted);
   socket.on('lobby:countdownCancelled', handleLobbyCountdownCancelled);
 
-  socket.emit('requestInitialLobbyState', { gameId: props.gameId }); 
+  if (props.gameId) {
+    const persistentPlayerId = sessionStorage.getItem('myGamePlayerId');
+    
+    socket.emit('joinGame', {
+      roomId: props.gameId,
+      persistentPlayerId: persistentPlayerId
+    }, (response) => {
+      isJoining.value = false;
+      if (response && response.success) {
+        console.log(`[WaitingRoom] Erfolgreich beigetreten/wiederverbunden.`);
+        
+        if (response.newPersistentId) {
+          sessionStorage.setItem('myGamePlayerId', response.newPersistentId);
+        }
 
-socket.emit('joinGame', { roomId: props.gameId }, (response) => {
-  if (response && response.success) {
-  
-    console.log(`[WaitingRoom] Successfully joined game ${props.gameId}.`);
+        if (response.gameState) {
+          // Stelle den Zustand aus dem Callback wieder her
+          // (dieser Teil ist für Reconnects in eine laufende Lobby wichtig)
+          const state = response.gameState;
+          roomDisplayName.value = state.roomName;
+          maxPlayersInRoom.value = state.maxPlayers;
+          players.value = state.players;
+          if (state.pastelPalette) {
+              roomBGColor.value = state.pastelPalette.primary;
+              // ... etc.
+          }
+          const me = state.players.find(p => p.id === socket.id);
+          if (me) myReadyStatus.value = me.isReadyInLobby;
+          if (state.lobbyCountdownEndTime) {
+            handleLobbyCountdownStarted({ roomId: props.gameId, endTime: state.lobbyCountdownEndTime });
+          }
+        }
+        
+        // +++ NEU: Setze den Spieler beim Beitritt explizit auf "nicht bereit" +++
+        console.log("[WaitingRoom] Setze initialen Ready-Status auf 'false' auf dem Server.");
+        socket.emit('player:setReadyStatus', { roomId: props.gameId, isReady: false }, (statusResponse) => {
+            if (statusResponse && statusResponse.success) {
+                // Aktualisiere den lokalen Status basierend auf der Bestätigung des Servers
+                myReadyStatus.value = statusResponse.currentReadyStatus; // Sollte 'false' sein
+            }
+        });
+        // +++ ENDE NEU +++
+
+      } else {
+        statusMessage.value = `Beitritt fehlgeschlagen: ${response.error || 'Unbekannter Fehler'}`;
+        gameIsOver.value = true;
+      }
+    });
   } else {
-  
-    statusMessage.value = `Beitritt fehlgeschlagen: ${response.error || 'Unbekannter Fehler'}`;
-    gameIsOver.value = true; 
+      isJoining.value = false;
+      statusMessage.value = 'Fehler: Keine Raum-ID gefunden.';
+      gameIsOver.value = true;
   }
-});
-  await nextTick(); 
+  
+  await nextTick();
   if (containerRef.value) {
-    
-    const cWidth = containerRef.value.clientWidth;
-    const cHeight = containerRef.value.clientHeight;
-
-    bubbles.playerCount.x = cWidth * 0.7 - bubbles.playerCount.width / 2;
-    bubbles.playerCount.y = cHeight * 0.2 - bubbles.playerCount.height / 2;
-
-    bubbles.readyButton.x = cWidth / 2 - bubbles.readyButton.width / 2;
-    bubbles.readyButton.y = cHeight / 2 - bubbles.readyButton.height / 2;
-    
-    bubbles.leaveButton.x = cWidth / 2 - bubbles.leaveButton.width / 2;
-    bubbles.leaveButton.y = cHeight * 0.8 - bubbles.leaveButton.height / 2;
-    
-    updateBubbleDynamicStyles(); // Initiale Styles setzen
+    updateBubblePositions();
     animationFrameId = requestAnimationFrame(updateBubblePositions);
   }
 });
-
 onUnmounted(() => {
   if (animationFrameId) cancelAnimationFrame(animationFrameId);
   if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
-  // ... (socket.off für alle Handler) ...
   socket.off('gameUpdate', handleGameUpdate);
   socket.off('goToGame', handleGoToGame);
-  socket.off('gameCancelled'); 
   socket.off('gameEnded');
+  socket.off('gameCancelled');
   socket.off('gameNotFound', handleGameNotFound);
   socket.off('lobby:countdownStarted', handleLobbyCountdownStarted);
   socket.off('lobby:countdownCancelled', handleLobbyCountdownCancelled);
-
-   document.body.style.backgroundColor = ''; // Setzt den Stil zurück
+  document.body.style.backgroundColor = '';
   document.body.style.transition = '';
 });
 
 function toggleReadyStatus() {
-  if (isTogglingReady.value) return; 
+  if (isJoining.value || isTogglingReady.value) return;
+
   isTogglingReady.value = true;
   const newReadyState = !myReadyStatus.value;
   socket.emit('player:setReadyStatus', { roomId: props.gameId, isReady: newReadyState }, (response) => {
@@ -337,14 +327,11 @@ function toggleReadyStatus() {
   });
 }
 
-
 function triggerLeaveGame() {
   if (!gameIsOver.value) {
-    if(localCountdownIntervalId) clearInterval(localCountdownIntervalId); 
-    countdownTime.value = null;
     socket.emit('leaveGame', { gameId: props.gameId });
   }
-  router.push('/'); 
+  router.push('/');
 }
 </script>
 
@@ -352,13 +339,17 @@ function triggerLeaveGame() {
 .waiting-room-app-container {
   width: 100%;
   min-height: 100vh;
-  padding: 0;
-  display: block; 
+  padding: 1rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
   position: relative; 
-  overflow: hidden; /* Wichtig, damit Bubbles nicht rausragen */
-  font-family: 'Baloo 2', cursive, 'Arial Rounded MT Bold', sans-serif; /* Freundliche, runde Schrift */
+  overflow: hidden;
+  font-family: 'Baloo 2', cursive, 'Arial Rounded MT Bold', sans-serif;
   color: white; 
   box-sizing: border-box;
+  background-color: var(--bg-color, #cfcfcf);
   transition: background-color 0.5s ease-out;
 }
 
@@ -367,17 +358,13 @@ function triggerLeaveGame() {
   top: 25px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 2.8em;
+  font-size: 2.2em;
   font-weight: 700; 
   color: rgba(255, 255, 255, 0.95);
   text-shadow: 0 3px 6px rgba(0,0,0,0.35);
   margin: 0;
   z-index: 10;
   letter-spacing: 1px;
-}
-
-.room-title-main {
-  font-size: 2.2em;
 }
 
 @media (max-width: 480px) {
@@ -392,7 +379,6 @@ function triggerLeaveGame() {
   background-repeat: no-repeat;
   background-position: center;
   background-color: transparent; 
-  
   border-radius: 50%; 
   display: flex;
   flex-direction: column;
@@ -401,29 +387,32 @@ function triggerLeaveGame() {
   text-align: center;
   color: #fff; 
   font-weight: 600;
-  transition: transform 0.15s ease-out;
+  transition: transform 0.15s ease-out, filter 0.15s ease-out;
   padding: 10px; 
   box-sizing: border-box;
   border: none;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5); 
-   filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2)) brightness(1.1); /* Mal gucken ob das gut aussieht*/ 
-
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2)) brightness(1.1);
 }
 
-.bubble-button { /* Spezifisch für klickbare Bubbles */
+.ready-bubble-button, .leave-bubble-button, .player-count-bubble {
+  position: absolute; /* Bubbles werden jetzt absolut positioniert */
+}
+
+.ready-bubble-button, .leave-bubble-button {
   cursor: pointer; 
   user-select: none;
 }
-.bubble-button:hover:not(:disabled) {
-  transform: scale(1.08) translateY(-3px); /* Stärkerer Hover */
-  filter: brightness(1.15); /* Heller bei Hover */
+.ready-bubble-button:hover:not(:disabled), .leave-bubble-button:hover:not(:disabled) {
+  transform: scale(1.08) translateY(-3px);
+  filter: brightness(1.15) drop-shadow(0 6px 12px rgba(0,0,0,0.3));
 }
-.bubble-button:active:not(:disabled) {
+.ready-bubble-button:active:not(:disabled), .leave-bubble-button:active:not(:disabled) {
   transform: scale(1.02) translateY(0px);
-  filter: brightness(0.95);
+  filter: brightness(0.95) drop-shadow(0 2px 4px rgba(0,0,0,0.2));
 }
-.bubble-button:disabled {
-  filter: grayscale(60%) opacity(0.6); /* PNG wird grauer und durchsichtiger */
+.ready-bubble-button:disabled {
+  filter: grayscale(60%) opacity(0.6) drop-shadow(0 4px 8px rgba(0,0,0,0.2));
   cursor: not-allowed;
 }
 
@@ -432,14 +421,13 @@ function triggerLeaveGame() {
   line-height: 1.2;
 }
 .bubble-text-prominent {
-  font-size: 1.3em; /* Etwas kleiner für Info-Bubble */
+  font-size: 1.3em;
   display: block; 
 }
 
 .player-count-bubble .bubble-text { font-size: 0.8em; }
 .player-count-bubble .bubble-text-prominent { font-size: 1.4em; }
 
-/* Visual accent: Countdown uses accent1 */
 .countdown-overlay {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
@@ -449,44 +437,56 @@ function triggerLeaveGame() {
   justify-content: center;
   align-items: center;
   border-radius: 50%; 
-  font-size: 2em; /* Größer für Countdown */
+  font-size: 2em;
   font-weight: bold;
-  backdrop-filter: blur(3px); /* Stärkerer Blur für Lesbarkeit */
+  backdrop-filter: blur(3px);
   text-shadow: 0 1px 3px rgba(0,0,0,0.5);
 }
 
-.ready-bubble-button .bubble-text { font-size: 1.3em; } /* Größerer Text für Hauptaktion */
+.ready-bubble-button .bubble-text { font-size: 1.3em; }
 .leave-bubble-button .bubble-text { font-size: 1em; }
 
-/* Visual accent: Status message uses accent2 */
 .floating-status-message {
-  position: fixed; /* Fixed, damit es auch bei Scroll (falls doch mal) bleibt */
+  position: fixed;
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
   background-color: var(--accent2, rgba(44, 62, 80, 0.85));
   color: white;
   padding: 12px 22px;
-  border-radius: 25px; /* Bubble-Form */
+  border-radius: 25px;
   font-size: 0.95em;
   box-shadow: 0 4px 10px rgba(0,0,0,0.25);
-  z-index: 100; /* Über allem */
+  z-index: 100;
   max-width: 80%;
   text-align: center;
 }
 
-.game-over-overlay { /* ... (wie zuletzt) ... */ }
-/* Visual accent: Game over text uses accent3 */
-.game-over-text {
-  color: var(--accent3, white);
+.game-over-overlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background-color: rgba(0,0,0,0.7);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 200;
+  text-align: center;
+  padding: 2rem;
+  box-sizing: border-box;
 }
-.back-to-join-bubble-gameover { /* ... (wie zuletzt, ggf. PNG anwenden) ... */
-  /* Erbt von .bubble-base, aber ist kein .bubble-button per se mehr */
+.game-over-text {
+  font-size: 1.5em;
+  color: var(--accent3, white);
+  margin: 0;
+}
+.back-to-join-bubble-gameover {
   position: static; width: auto; height: auto;
-  padding: 15px 30px; /* Größerer Padding */
-  border-radius: 30px; /* Stärkere Rundung */
+  padding: 15px 30px;
+  border-radius: 30px;
   margin-top: 15px;
-  background-image: url('/src/assets/bubble-blue.png'); /* Beispiel für Button-PNG */
+  background-image: url('@/assets/bubble-blue.png');
   color: white;
   cursor: pointer;
   font-weight: 600;
@@ -496,14 +496,4 @@ function triggerLeaveGame() {
 .back-to-join-bubble-gameover:hover {
     transform: scale(1.05);
 }
-
-@media (max-width: 480px) {
-  /* Responsive bubble scaling for small screens */
-  .bubble-base {
-    transform: scale(0.85);
-  }
-}
-
-
-
 </style>
