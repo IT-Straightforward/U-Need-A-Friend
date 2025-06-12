@@ -468,65 +468,83 @@ io.on('connection', socket => {
 
 
 socket.on("joinGame", ({ roomId, persistentPlayerId }, callback) => {
-  console.log(`[Server] Socket ${socket.id} attempting to join room: ${roomId} with persistentId: ${persistentPlayerId || 'none'}`);
-
-  const gameInstance = games[roomId];
+ const gameInstance = games[roomId];
   const roomConfig = PREDEFINED_ROOM_CONFIGS.find(r => r.id === roomId);
 
   if (!roomConfig || !gameInstance || !gameInstance.adminSocketId) {
-    const errorMsg = !roomConfig ? "Invalid Room ID." : `Room "${roomConfig.name}" is not currently active.`;
-    return callback && callback({ success: false, error: errorMsg });
+    return callback && callback({ success: false, error: "Raum nicht aktiv oder nicht gefunden." });
   }
 
-  // --- LOGIK FÜR WIEDERVERBINDUNG (RECONNECT) ---
+  // --- WIEDERVERBINDUNGS-LOGIK (RECONNECT) ---
   if (persistentPlayerId) {
     const existingPlayer = gameInstance.players.find(p => p.persistentId === persistentPlayerId);
     
-    if (persistentPlayerId) {
-    const existingPlayer = gameInstance.players.find(p => p.persistentId === persistentPlayerId);
     if (existingPlayer) {
-      console.log(`[Game ${roomId}] Reconnecting player ${persistentPlayerId}.`);
+      const oldSocketId = existingPlayer.id;
+      console.log(`[Game ${roomId}] Reconnecting player ${persistentPlayerId}. New socket: ${socket.id}`);
       
-      // Timer für die Entfernung abbrechen
       if (existingPlayer.removalTimeout) {
         clearTimeout(existingPlayer.removalTimeout);
         delete existingPlayer.removalTimeout;
       }
       
-      // Spieler wieder aktivieren und neue Socket-ID zuweisen
       existingPlayer.id = socket.id;
       existingPlayer.disconnected = false;
       socket.join(roomId);
 
-      // +++ NEU: Erstelle einen Payload mit dem kompletten Zustand für den Client +++
-      const playerListForUpdate = gameInstance.players.map(p => ({ id: p.id, isReadyInLobby: p.isReadyInLobby }));
-      const statePayload = {
-          // Daten für WaitingRoom & Game
-          players: playerListForUpdate,
+      // Aktualisiere die IDs in der laufenden Runde, falls nötig
+      if (gameInstance.currentRound && gameInstance.isRunning) {
+        if (gameInstance.currentRound.sourceId === oldSocketId) gameInstance.currentRound.sourceId = socket.id;
+        if (gameInstance.currentRound.targetId === oldSocketId) gameInstance.currentRound.targetId = socket.id;
+      }
+      
+      // Bestätige den Reconnect im Callback
+      if (callback) callback({ success: true, persistentPlayerId: existingPlayer.persistentId });
+
+      // +++ NEUE, SAUBERE ZUSTANDS-WIEDERHERSTELLUNG +++
+      // Sende jetzt die passenden Events, damit die UI des Spielers sich wieder aufbaut.
+      
+      if (!gameInstance.started) {
+        // Fall 1: Das Spiel ist noch in der Lobby
+        const playerList = gameInstance.players.map(p => ({ id: p.id, isReadyInLobby: p.isReadyInLobby }));
+        socket.emit("gameUpdate", {
+          players: playerList,
           gameId: roomId,
           roomName: gameInstance.name,
           maxPlayers: gameInstance.maxPlayers,
-          pastelPalette: gameInstance.pastelPalette,
-          initialPieces: gameInstance.collectedPieces || [],
-          // Daten spezifisch für Game
-          playerId: existingPlayer.id,
-          buttons: existingPlayer.iconSymbols || [],
-          // Daten spezifisch für WaitingRoom (Countdown)
-          lobbyCountdownEndTime: gameInstance.lobbyCountdownEndTime,
-          // Daten spezifisch für Game (Rundeninfo)
-          currentRound: gameInstance.isRunning ? gameInstance.currentRound : null
-      };
+          pastelPalette: gameInstance.pastelPalette
+        });
+      } else {
+        // Fall 2: Das Spiel läuft bereits
+        // Sende zuerst 'gameStarted', damit die Buttons und Pieces geladen werden
+        socket.emit("gameStarted", {
+            playerId: existingPlayer.id,
+            buttons: existingPlayer.iconSymbols || [],
+            initialPieces: gameInstance.collectedPieces || [],
+            gameId: roomId,
+            roomName: gameInstance.name,
+            pastelPalette: gameInstance.pastelPalette
+        });
+        // Sende danach das 'roundUpdate', damit die aktuelle Runde angezeigt wird
+        if (gameInstance.isRunning && gameInstance.currentRound) {
+            let playerRole = 'inactive';
+            if (existingPlayer.id === gameInstance.currentRound.sourceId) playerRole = 'source';
+            else if (existingPlayer.id === gameInstance.currentRound.targetId) playerRole = 'target';
+            
+            socket.emit('roundUpdate', {
+                ...gameInstance.currentRound,
+                role: playerRole
+            });
+        }
+      }
+      // Informiere die anderen Spieler, dass ein Spieler (wieder) da ist
+      const allPlayersList = gameInstance.players.map(p => ({ id: p.id, isReadyInLobby: p.isReadyInLobby }));
+      io.to(roomId).except(socket.id).emit("gameUpdate", { players: allPlayersList, gameId: roomId });
 
-      // Sende den Zustand direkt im Callback an den wiederkehrenden Spieler
-      if (callback) callback({ success: true, persistentPlayerId: existingPlayer.persistentId, gameState: statePayload });
-      
-      // Informiere alle anderen Spieler nur über die aktualisierte Spielerliste
-      io.to(roomId).except(socket.id).emit("gameUpdate", { players: playerListForUpdate, gameId: roomId });
-      
-      return; // Wichtig: Hier beenden
+      return;
     }
-}
   }
+
 
   // --- LOGIK FÜR NEUEN SPIELER (falls keine Wiederverbindung möglich war) ---
   if (gameInstance.started) {
