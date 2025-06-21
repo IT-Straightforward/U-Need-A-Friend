@@ -2,7 +2,7 @@
   { 
     "id": "ZOO",
     "name": "Zoo",
-    "maxPlayers": 6,
+    "maxPlayers": 4,
     "description": "Entdecke Tiere aus aller Welt.",
     "pastelPalette": {
       "primary": "#a8d5ba",
@@ -14,7 +14,7 @@
   {
     "id": "MAPROOM",
     "name": "Maproom",
-    "maxPlayers": 6,
+    "maxPlayers": 4,
     "description": "Erkunde Flaggen und Länder auf einem riesigen Globus.",
     "pastelPalette": {
       "primary": "#f3c7a6",
@@ -26,7 +26,7 @@
   { 
     "id": "FOODCOURT",
     "name": "Foodcourt",
-    "maxPlayers": 6,
+    "maxPlayers": 4,
     "description": "Von Pizza bis Sushi - finde dein Lieblingsgericht.",
     "pastelPalette": {
       "primary": "#f7bfb4",
@@ -38,7 +38,7 @@
   { 
     "id": "AT_HOME",
     "name": "At Home",
-    "maxPlayers": 6,
+    "maxPlayers": 4,
     "description": "Alltagsgegenstände die jeder kennt.",
     "pastelPalette": {
       "primary": "#d9c8ae",
@@ -50,7 +50,7 @@
   { 
     "id": "GYM",
     "name": "Gym",
-    "maxPlayers": 6,
+    "maxPlayers": 4,
     "description": "Man muss kein Olympiasieger sein.",
     "pastelPalette": {
       "primary": "#a7c7e7",
@@ -62,7 +62,7 @@
   { 
     "id": "GARAGE",
     "name": "Garage",
-    "maxPlayers": 6,
+    "maxPlayers": 4,
     "description": "Entdecke alles, was Räder, Schrauben oder Ketten hat.",
     "pastelPalette": {
       "primary": "#d3bce0",

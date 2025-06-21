@@ -76,18 +76,51 @@ try {
 
 const games = {};
 
+// In server.js
+
 function shuffleArray(array) {
-  let currentIndex = array.length,
-    randomIndex;
+  let currentIndex = array.length, randomIndex;
   while (currentIndex !== 0) {
     randomIndex = Math.floor(Math.random() * currentIndex);
     currentIndex--;
-    [array[currentIndex], array[randomIndex]] = [
-      array[randomIndex],
-      array[currentIndex],
-    ];
+    [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
   }
   return array;
+}
+
+function setupNewGameBoard(game) {
+  const roomConfig = PREDEFINED_ROOM_CONFIGS.find(r => r.id === game.id);
+  const themeFolder = roomConfig?.id?.toLowerCase() || 'default';
+  const fullSymbolPool = getSymbolPoolForTheme(themeFolder);
+
+  const SYMBOLS_PER_GAME = 9;
+
+  if (fullSymbolPool.length < SYMBOLS_PER_GAME) {
+    const errorMsg = `Nicht genügend Symbole im Pool für Theme '${themeFolder}'. Benötigt: ${SYMBOLS_PER_GAME}, Verfügbar: ${fullSymbolPool.length}.`;
+    console.error(`[Game ${game.id}] ${errorMsg}`);
+    io.to(game.id).emit('gameError', { message: errorMsg });
+    if (game.adminSocketId) {
+      io.to(game.adminSocketId).emit('gameSetupError', { roomId: game.id, message: errorMsg });
+    }
+    return false;
+  }
+
+  const shuffledPool = shuffleArray([...fullSymbolPool]);
+  game.gameSymbols = shuffledPool.slice(0, SYMBOLS_PER_GAME);
+  game.matchedSymbols = [];
+  
+  console.log(`[Game ${game.id}] Spielbrett wird mit diesen ${SYMBOLS_PER_GAME} Symbolen aufgebaut:`, game.gameSymbols.join(', '));
+
+  game.players.forEach(player => {
+    const shuffledBoardSymbols = shuffleArray([...game.gameSymbols]);
+    player.board = shuffledBoardSymbols.map(symbol => ({
+      symbol: symbol,
+      isFlipped: false,
+      isMatched: false
+    }));
+  });
+  
+  return true;
 }
 /**
  * Lädt Symbol-Identifier (Dateinamen ohne .svg) aus einem spezifischen Theme-Ordner.
@@ -103,6 +136,8 @@ function shuffleArray(array) {
  * @param {string} persistentPlayerId - Die beständige ID des zu entfernenden Spielers.
  * @param {string} roomId - Die ID des Raumes.
  */
+// In server.js
+
 function removePlayerFromGame(persistentPlayerId, roomId) {
   const game = games[roomId];
   if (!game) return;
@@ -112,13 +147,11 @@ function removePlayerFromGame(persistentPlayerId, roomId) {
 
   const leavingPlayer = game.players[playerIndex];
   
-  // Breche einen eventuellen Entfernungs-Timer ab, falls diese Funktion explizit aufgerufen wird
   if (leavingPlayer.removalTimeout) clearTimeout(leavingPlayer.removalTimeout);
 
   game.players.splice(playerIndex, 1);
   if (leavingPlayer.ready && game.readyPlayerCount > 0) game.readyPlayerCount--;
 
-  // Logik aus deiner alten handlePlayerLeave-Funktion
   if (game.lobbyCountdownTimerId) {
     clearInterval(game.lobbyCountdownTimerId);
     game.lobbyCountdownTimerId = null;
@@ -135,12 +168,32 @@ function removePlayerFromGame(persistentPlayerId, roomId) {
     io.to(roomId).emit('gameEnded', { reason: 'insufficient_players_mid_game', message: 'Not enough players.' });
     if(game.adminSocketId) io.to(game.adminSocketId).emit("gameForceEnded", { roomId, message: "Game ended: Not enough players." });
     delete games[roomId];
-  } else if (game.isRunning && game.currentRound && (game.currentRound.sourceId === leavingPlayer.id || game.currentRound.targetId === leavingPlayer.id)) {
-    startNewRound(game);
+  
+  // GEÄNDERT: Alte Rundenlogik komplett entfernt und durch neue ersetzt
+  } else if (game.isRunning && game.currentTurn && !game.currentTurn.isResolved) {
+    // Ein Spieler hat das Spiel mitten in einer ungelösten Runde verlassen.
+    // Wir setzen die Runde für alle verbleibenden Spieler zurück.
+    console.log(`[Game ${roomId}] Player left mid-turn. Resetting current turn.`);
+    game.currentTurn.choices = {};
+    game.currentTurn.isResolved = true; // Markiere sie als gelöst, um sie abzuschließen
+    
+    // Beginne eine neue Runde
+    const nextTurnNumber = (game.currentTurn.turnNumber || 0) + 1;
+    game.currentTurn = { turnNumber: nextTurnNumber, choices: {}, isResolved: false };
+    io.to(roomId).emit('turnBegan', { turnNumber: nextTurnNumber, matchedSymbols: game.matchedSymbols });
   }
   
-  // Sende immer ein Admin-Status-Update
-  io.emit('admin:roomStatusUpdate', { /* ... */ });
+  // Sende immer ein Admin-Status-Update, wenn der Raum noch existiert
+  if (games[roomId]) {
+    io.emit('admin:roomStatusUpdate', { 
+        roomId, 
+        status: { 
+            isActive: true, 
+            isRunning: game.isRunning, 
+            playerCount: game.players.length 
+        } 
+    });
+  }
 }
 
 function getSymbolPoolForTheme(themeFolder) {
@@ -196,67 +249,6 @@ function getSymbolPoolForTheme(themeFolder) {
   }
 }
 
-function assignSymbolsToAllPlayersInGame(game) {
-  // 1. Bestimme den Theme-Ordner für das aktuelle Spiel
-  const roomConfig = PREDEFINED_ROOM_CONFIGS.find(r => r.id === game.id);
-  const themeFolder = roomConfig?.id?.toLowerCase() || 'default'; // Deine Konvention
-
-  // 2. Hole den Symbol-Pool für dieses Theme
-  const currentSymbolPool = getSymbolPoolForTheme(themeFolder);
-
-  const playerCount = game.players.length;
-  if (playerCount === 0) return true; // Kein Fehler, aber auch nichts zu tun
-  const totalSymbolsNeeded = playerCount * 4;
-
-  if (currentSymbolPool.length === 0) {
-    const errorMsg = `Symbol pool for theme '${themeFolder}' (and default fallback) is empty. Cannot assign symbols.`;
-    console.error(`[Game ${game.id}] ${errorMsg}`);
-    game.players.forEach(p => {
-      const playerSocket = io.sockets.sockets.get(p.id);
-      if (playerSocket) playerSocket.emit('gameError', { message: errorMsg });
-    });
-    if (game.adminSocketId && io.sockets.sockets.get(game.adminSocketId)) {
-      io.to(game.adminSocketId).emit('gameSetupError', {
-        roomId: game.id,
-        message: errorMsg,
-      });
-    }
-    return false;
-  }
-
-  let symbolsToAssign;
-  if (totalSymbolsNeeded > currentSymbolPool.length) {
-    console.warn(
-      `[Game ${game.id}] Warning: Not enough unique symbols in theme '${themeFolder}' pool (length ${currentSymbolPool.length}) for all players (${totalSymbolsNeeded} needed). Symbols will repeat.`
-    );
-    let extendedPool = [...currentSymbolPool];
-    while (
-      extendedPool.length < totalSymbolsNeeded &&
-      currentSymbolPool.length > 0
-    ) {
-      extendedPool.push(...currentSymbolPool);
-    }
-    symbolsToAssign = shuffleArray(extendedPool).slice(0, totalSymbolsNeeded);
-  } else {
-    symbolsToAssign = shuffleArray([...currentSymbolPool]);
-  }
-
-  game.players.forEach((player, index) => {
-    const startIndex = index * 4;
-    player.iconSymbols = symbolsToAssign.slice(startIndex, startIndex + 4);
-    if (player.iconSymbols.length < 4 && playerCount > 0) {
-      // GEÄNDERT: player.name durch player.id ersetzt für eine eindeutige Log-Nachricht.
-      console.warn(
-        `[Game ${game.id}] Player with ID ${player.id} received only ${player.iconSymbols.length} symbols due to pool exhaustion.`
-      );
-    }
-  });
-
-  console.log(
-    `[Game ${game.id}] Icon Identifiers from theme '${themeFolder}' pool assigned to ${playerCount} players.`
-  );
-  return true;
-}
 
 // SOCKET
 io.on('connection', socket => {
@@ -321,154 +313,165 @@ io.on('connection', socket => {
     }
   });
 
-  socket.on('admin:activateRoom', ({ roomId }, callback) => {
-    console.log(`[Admin ${socket.id}] wants to activate room: ${roomId}`);
-    const roomConfig = PREDEFINED_ROOM_CONFIGS.find(r => r.id === roomId);
-    if (!roomConfig) {
-      const errorMsg = `Room configuration for ID '${roomId}' not found.`;
+
+socket.on('admin:activateRoom', ({ roomId }, callback) => {
+  console.log(`[Admin ${socket.id}] wants to activate room: ${roomId}`);
+  const roomConfig = PREDEFINED_ROOM_CONFIGS.find(r => r.id === roomId);
+  if (!roomConfig) {
+    const errorMsg = `Room configuration for ID '${roomId}' not found.`;
+    if (callback) callback({ success: false, error: errorMsg });
+    socket.emit('admin:error', { message: errorMsg, roomId });
+    return;
+  }
+  let wasAlreadyActive = false;
+  let needsGeneralStatusUpdate = true;
+
+  if (games[roomId]) {
+    if (
+      games[roomId].adminSocketId &&
+      games[roomId].adminSocketId !== socket.id
+    ) {
+      const errorMsg = `Room ${roomId} is managed by another admin.`;
       if (callback) callback({ success: false, error: errorMsg });
       socket.emit('admin:error', { message: errorMsg, roomId });
       return;
     }
-    let wasAlreadyActive = false;
-    let needsGeneralStatusUpdate = true;
+    console.log(
+      `Room ${roomId} is already active or being reactivated by admin ${socket.id}.`
+    );
+    games[roomId].adminSocketId = socket.id;
+    wasAlreadyActive = true;
+    needsGeneralStatusUpdate = !games[roomId].adminSocketId;
+    socket.join(roomId);
+  } else {
+    console.log(
+      `Activating new room instance for ${roomId} by admin ${socket.id}.`
+    );
+    games[roomId] = {
+      id: roomId,
+      name: roomConfig.name,
+      maxPlayers: roomConfig.maxPlayers,
+      adminSocketId: socket.id,
+      players: [],
+      started: false,
+      isRunning: false,
+      
+      // NEUE STRUKTUR
+      gameSymbols: [],        // Die 9 Symbole für diese Runde
+      matchedSymbols: [],     // Array der erfolgreich gefundenen Symbole
+      currentTurn: {          // Speichert die Auswahl der aktuellen Runde
+        turnNumber: 0,
+        choices: {},          // Map von { playerId: 'symbol' }
+        isResolved: true,     // Zeigt an, ob die Runde ausgewertet wurde
+      },
+      // ENDE NEUE STRUKTUR
 
-    if (games[roomId]) {
-      if (
-        games[roomId].adminSocketId &&
-        games[roomId].adminSocketId !== socket.id
-      ) {
-        const errorMsg = `Room ${roomId} is managed by another admin.`;
-        if (callback) callback({ success: false, error: errorMsg });
-        socket.emit('admin:error', { message: errorMsg, roomId });
-        return;
-      }
-      console.log(
-        `Room ${roomId} is already active or being reactivated by admin ${socket.id}.`
-      );
-      games[roomId].adminSocketId = socket.id;
-      wasAlreadyActive = true;
-      needsGeneralStatusUpdate = !games[roomId].adminSocketId;
-      socket.join(roomId);
-    } else {
-      console.log(
-        `Activating new room instance for ${roomId} by admin ${socket.id}.`
-      );
-      games[roomId] = {
-        id: roomId,
-        name: roomConfig.name,
-        maxPlayers: roomConfig.maxPlayers,
-        adminSocketId: socket.id,
-        players: [],
-        started: false,
-        isRunning: false,
-        currentRound: null,
-        readyPlayerCount: 0,
-        nextTargetPlayerIndex: 0,
-        roundNumber: 0,
-        collectedPieces: [],
-        lobbyCountdownTimerId: null,
-        lobbyCountdownEndTime: null,
-        pastelPalette: roomConfig.pastelPalette,
-      };
-      socket.join(roomId);
-    }
-    const gameInstance = games[roomId];
-    const currentStatusPayload = {
-      isActive: true,
-      isRunning: gameInstance.isRunning,
-      playerCount: gameInstance.players.length,
-      players: gameInstance.players.map(p => ({
-        id: p.id,
-        isReadyInLobby: p.isReadyInLobby,
-      })),
-      pastelPalette: gameInstance.pastelPalette,
-      maxPlayers: gameInstance.maxPlayers,
+      readyPlayerCount: 0,
+      lobbyCountdownTimerId: null,
+      lobbyCountdownEndTime: null,
+      pastelPalette: roomConfig.pastelPalette,
     };
-    const successMessage = wasAlreadyActive
-      ? `Room ${roomId} management reconfirmed.`
-      : `Room ${roomId} activated.`;
-    socket.emit('admin:roomActivated', {
-      roomId,
-      message: successMessage,
-      status: currentStatusPayload,
-    });
-    if (typeof callback === 'function') {
-      callback({ success: true, roomId, status: currentStatusPayload });
-    }
-    if (needsGeneralStatusUpdate) {
-      io.emit('admin:roomStatusUpdate', {
-        roomId,
-        status: {
-          isActive: true,
-          isRunning: gameInstance.isRunning,
-          playerCount: gameInstance.players.length,
-                  players: [], 
-          pastelPalette: gameInstance.pastelPalette,
-          maxPlayers: gameInstance.maxPlayers,
-        },
-      });
-    }
+    socket.join(roomId);
+  }
+  const gameInstance = games[roomId];
+  const currentStatusPayload = {
+    isActive: true,
+    isRunning: gameInstance.isRunning,
+    playerCount: gameInstance.players.length,
+    players: gameInstance.players.map(p => ({
+      id: p.id,
+      isReadyInLobby: p.isReadyInLobby,
+    })),
+    pastelPalette: gameInstance.pastelPalette,
+    maxPlayers: gameInstance.maxPlayers,
+  };
+  const successMessage = wasAlreadyActive
+    ? `Room ${roomId} management reconfirmed.`
+    : `Room ${roomId} activated.`;
+  socket.emit('admin:roomActivated', {
+    roomId,
+    message: successMessage,
+    status: currentStatusPayload,
   });
-
-  socket.on('admin:getRoomDetails', ({ roomId }, callback) => {
-    console.log(`[Admin ${socket.id}] requested details for room: ${roomId}`);
-    const gameInstance = games[roomId];
-    const roomConfig = PREDEFINED_ROOM_CONFIGS.find(r => r.id === roomId);
-    if (!roomConfig)
-      return (
-        callback &&
-        callback({ success: false, error: 'Room configuration not found.' })
-      );
-
-    if (gameInstance) {
-      const playersWithReadyStatus = gameInstance.players.map(p => ({
-        id: p.id,
-        isReadyInLobby: p.isReadyInLobby || false,
-      }));
-      const currentRoundForAdmin =
-      gameInstance.isRunning && gameInstance.currentRound
-        ? {
-            roundNumber: gameInstance.roundNumber,
-            sourcePlayer: { id: gameInstance.currentRound.sourceId },
-            targetPlayer: { id: gameInstance.currentRound.targetId },
-            targetSymbol: gameInstance.currentRound.currentTargetSymbol,
-          }
-        : null;
-      const roomDetails = {
-        roomId: gameInstance.id,
-        name: gameInstance.name,
+  if (typeof callback === 'function') {
+    callback({ success: true, roomId, status: currentStatusPayload });
+  }
+  if (needsGeneralStatusUpdate) {
+    io.emit('admin:roomStatusUpdate', {
+      roomId,
+      status: {
         isActive: true,
         isRunning: gameInstance.isRunning,
-        players: playersWithReadyStatus,
         playerCount: gameInstance.players.length,
-        maxPlayers: gameInstance.maxPlayers,
+              players: [], 
         pastelPalette: gameInstance.pastelPalette,
-        currentRound: currentRoundForAdmin,
-        lobbyReadyPlayerCount: gameInstance.players.filter(
-          p => p.isReadyInLobby
-        ).length,
-        assetReadyPlayerCount: gameInstance.readyPlayerCount,
-      };
-      if (callback) callback({ success: true, details: roomDetails });
-    } else {
-      const roomDetails = {
-        roomId: roomConfig.id,
-        name: roomConfig.name,
-        isActive: false,
-        isRunning: false,
-        players: [],
-        playerCount: 0,
-        maxPlayers: roomConfig.maxPlayers,
-        pastelPalette: roomConfig.pastelPalette,
-      };
-      if (callback) callback({ success: true, details: roomDetails });
-    }
-  });
+        maxPlayers: gameInstance.maxPlayers,
+      },
+    });
+  }
+});
+
+socket.on('admin:getRoomDetails', ({ roomId }, callback) => {
+  console.log(`[Admin ${socket.id}] requested details for room: ${roomId}`);
+  const gameInstance = games[roomId];
+  const roomConfig = PREDEFINED_ROOM_CONFIGS.find(r => r.id === roomId);
+  if (!roomConfig)
+    return (
+      callback &&
+      callback({ success: false, error: 'Room configuration not found.' })
+    );
+
+  if (gameInstance) {
+    const playersWithReadyStatus = gameInstance.players.map(p => ({
+      id: p.id,
+      isReadyInLobby: p.isReadyInLobby || false,
+    }));
+    
+    // NEUE STRUKTUR für die Runden-Info im Admin Panel
+    const currentTurnForAdmin =
+    gameInstance.isRunning && gameInstance.currentTurn
+      ? {
+          turnNumber: gameInstance.currentTurn.turnNumber,
+          choicesCount: Object.keys(gameInstance.currentTurn.choices).length,
+          isResolved: gameInstance.currentTurn.isResolved
+        }
+      : null;
+
+    const roomDetails = {
+      roomId: gameInstance.id,
+      name: gameInstance.name,
+      isActive: true,
+      isRunning: gameInstance.isRunning,
+      players: playersWithReadyStatus,
+      playerCount: gameInstance.players.length,
+      maxPlayers: gameInstance.maxPlayers,
+      pastelPalette: gameInstance.pastelPalette,
+      matchedSymbols: gameInstance.matchedSymbols || [], // NEU
+      currentTurn: currentTurnForAdmin, // GEÄNDERT
+      lobbyReadyPlayerCount: gameInstance.players.filter(
+        p => p.isReadyInLobby
+      ).length,
+      assetReadyPlayerCount: gameInstance.readyPlayerCount,
+    };
+    if (callback) callback({ success: true, details: roomDetails });
+  } else {
+    const roomDetails = {
+      roomId: roomConfig.id,
+      name: roomConfig.name,
+      isActive: false,
+      isRunning: false,
+      players: [],
+      playerCount: 0,
+      maxPlayers: roomConfig.maxPlayers,
+      pastelPalette: roomConfig.pastelPalette,
+    };
+    if (callback) callback({ success: true, details: roomDetails });
+  }
+});
 
 
 socket.on("joinGame", ({ roomId, persistentPlayerId }, callback) => {
- const gameInstance = games[roomId];
+  const gameInstance = games[roomId]; // Die Variable hier heißt gameInstance
   const roomConfig = PREDEFINED_ROOM_CONFIGS.find(r => r.id === roomId);
 
   if (!roomConfig || !gameInstance || !gameInstance.adminSocketId) {
@@ -480,7 +483,6 @@ socket.on("joinGame", ({ roomId, persistentPlayerId }, callback) => {
     const existingPlayer = gameInstance.players.find(p => p.persistentId === persistentPlayerId);
     
     if (existingPlayer) {
-      const oldSocketId = existingPlayer.id;
       console.log(`[Game ${roomId}] Reconnecting player ${persistentPlayerId}. New socket: ${socket.id}`);
       
       if (existingPlayer.removalTimeout) {
@@ -492,20 +494,10 @@ socket.on("joinGame", ({ roomId, persistentPlayerId }, callback) => {
       existingPlayer.disconnected = false;
       socket.join(roomId);
 
-      // Aktualisiere die IDs in der laufenden Runde, falls nötig
-      if (gameInstance.currentRound && gameInstance.isRunning) {
-        if (gameInstance.currentRound.sourceId === oldSocketId) gameInstance.currentRound.sourceId = socket.id;
-        if (gameInstance.currentRound.targetId === oldSocketId) gameInstance.currentRound.targetId = socket.id;
-      }
-      
-      // Bestätige den Reconnect im Callback
       if (callback) callback({ success: true, persistentPlayerId: existingPlayer.persistentId });
 
-      // +++ NEUE, SAUBERE ZUSTANDS-WIEDERHERSTELLUNG +++
-      // Sende jetzt die passenden Events, damit die UI des Spielers sich wieder aufbaut.
-      
+      // NEUE, KORREKTE ZUSTANDS-WIEDERHERSTELLUNG
       if (!gameInstance.started) {
-        // Fall 1: Das Spiel ist noch in der Lobby
         const playerList = gameInstance.players.map(p => ({ id: p.id, isReadyInLobby: p.isReadyInLobby }));
         socket.emit("gameUpdate", {
           players: playerList,
@@ -515,29 +507,20 @@ socket.on("joinGame", ({ roomId, persistentPlayerId }, callback) => {
           pastelPalette: gameInstance.pastelPalette
         });
       } else {
-        // Fall 2: Das Spiel läuft bereits
-        // Sende zuerst 'gameStarted', damit die Buttons und Pieces geladen werden
-        socket.emit("gameStarted", {
-            playerId: existingPlayer.id,
-            buttons: existingPlayer.iconSymbols || [],
-            initialPieces: gameInstance.collectedPieces || [],
-            gameId: roomId,
-            roomName: gameInstance.name,
-            pastelPalette: gameInstance.pastelPalette
+        socket.emit('gameInitialized', {
+          playerId: existingPlayer.id,
+          playerBoard: existingPlayer.board,
+          gameId: gameInstance.id,
+          roomName: gameInstance.name,
+          matchedSymbols: gameInstance.matchedSymbols,
+          pastelPalette: gameInstance.pastelPalette
         });
-        // Sende danach das 'roundUpdate', damit die aktuelle Runde angezeigt wird
-        if (gameInstance.isRunning && gameInstance.currentRound) {
-            let playerRole = 'inactive';
-            if (existingPlayer.id === gameInstance.currentRound.sourceId) playerRole = 'source';
-            else if (existingPlayer.id === gameInstance.currentRound.targetId) playerRole = 'target';
-            
-            socket.emit('roundUpdate', {
-                ...gameInstance.currentRound,
-                role: playerRole
-            });
-        }
+        io.to(roomId).emit('turnBegan', { 
+            turnNumber: gameInstance.currentTurn.turnNumber, 
+            matchedSymbols: gameInstance.matchedSymbols // HIER WAR DER FEHLER: game -> gameInstance
+        });
       }
-      // Informiere die anderen Spieler, dass ein Spieler (wieder) da ist
+      
       const allPlayersList = gameInstance.players.map(p => ({ id: p.id, isReadyInLobby: p.isReadyInLobby }));
       io.to(roomId).except(socket.id).emit("gameUpdate", { players: allPlayersList, gameId: roomId });
 
@@ -545,8 +528,7 @@ socket.on("joinGame", ({ roomId, persistentPlayerId }, callback) => {
     }
   }
 
-
-  // --- LOGIK FÜR NEUEN SPIELER (falls keine Wiederverbindung möglich war) ---
+  // --- LOGIK FÜR NEUEN SPIELER ---
   if (gameInstance.started) {
     return callback && callback({ success: false, error: "Game has already started." });
   }
@@ -558,10 +540,10 @@ socket.on("joinGame", ({ roomId, persistentPlayerId }, callback) => {
   const newPlayer = {
     id: socket.id,
     persistentId: newPersistentId,
-    symbols: [],
+    board: [],
     ready: false,
     isReadyInLobby: false,
-    disconnected: false, // Initialer Status
+    disconnected: false,
   };
   
   gameInstance.players.push(newPlayer);
@@ -571,13 +553,19 @@ socket.on("joinGame", ({ roomId, persistentPlayerId }, callback) => {
   const playerListForUpdate = gameInstance.players.map(p => ({ id: p.id, isReadyInLobby: p.isReadyInLobby }));
   io.to(roomId).emit("gameUpdate", { players: playerListForUpdate, gameId: roomId, roomName: gameInstance.name, pastelPalette: gameInstance.pastelPalette, maxPlayers: gameInstance.maxPlayers });
   if (gameInstance.adminSocketId) {
-    io.to(gameInstance.adminSocketId).emit('admin:playerJoinedRoom', { roomId, players: playerListForUpdate });
+    io.emit('admin:roomStatusUpdate', {
+      roomId,
+      status: {
+        isActive: true,
+        isRunning: gameInstance.isRunning,
+        playerCount: gameInstance.players.length,
+        players: playerListForUpdate
+      },
+    });
   }
 
-  // Sende die neue beständige ID zurück an den Client
   if (callback) callback({ success: true, newPersistentId: newPersistentId });
 });
-
 // In server.js, innerhalb von io.on("connection", ...)
 
 socket.on('player:setReadyStatus', ({ roomId, isReady }, callback) => {
@@ -768,90 +756,52 @@ socket.on('playerReadyForGame', ({ gameId }) => {
     player.ready = true;
     game.readyPlayerCount = (game.readyPlayerCount || 0) + 1;
     console.log(
-      `[Game ${gameId}] Player ${player.id} (assets loaded). Total game-ready: ${game.readyPlayerCount}/${game.players.length}`
+      `[Game ${gameId}] Spieler ${player.id} hat Assets geladen. Bereit: ${game.readyPlayerCount}/${game.players.length}`
     );
-    if (game.adminSocketId && io.sockets.sockets.get(game.adminSocketId)) {
-      io.to(game.adminSocketId).emit('playerReadyUpdate', {
-        gameId,
-        playerId: player.id,
-        isReady: true,
-        readyCount: game.readyPlayerCount,
-        totalPlayers: game.players.length,
-        type: 'assetLoad',
-      });
-    }
   }
 
-  // Prüfen, ob alle Spieler bereit sind
-  if (
-    game.players.length > 0 &&
-    game.readyPlayerCount === game.players.length
-  ) {
-    console.log(
-      `[Game ${gameId}] All players loaded assets. Assigning symbols & starting rounds.`
-    );
-
+  if (game.players.length > 0 && game.readyPlayerCount === game.players.length) {
     if (game.isRunning) {
-      console.log(`[Game ${gameId}] All players ready, but game is already running. No action taken.`);
-      return; // Beende die Funktion hier, um ein erneutes Starten zu verhindern.
+      console.log(`[Game ${gameId}] Alle Spieler bereit, aber Spiel läuft bereits. Keine Aktion.`);
+      return;
     }
-    
-    if (!assignSymbolsToAllPlayersInGame(game)) {
-      game.isRunning = false;
-      console.error(
-        `[Game ${gameId}] Critical: Failed to assign symbols. Game rounds will not start.`
-      );
-      return; // Verhindert, dass das Spiel ohne Symbole weitergeht
+    console.log(`[Game ${gameId}] Alle Spieler bereit. Initialisiere Spielbrett.`);
+
+    if (!setupNewGameBoard(game)) {
+      console.error(`[Game ${gameId}] Kritisch: Spielbrett konnte nicht initialisiert werden. Spiel wird nicht gestartet.`);
+      return;
     }
 
-    // Wenn Symbole erfolgreich zugewiesen wurden:
     game.isRunning = true;
-    
-    // roomConfig einmal vor der Schleife definieren
-    const roomConfig = PREDEFINED_ROOM_CONFIGS.find(r => r.id === game.id);
 
-    // Einmal durch alle Spieler iterieren und das Event senden
     game.players.forEach(p => {
       const pSocket = io.sockets.sockets.get(p.id);
       if (pSocket) {
-        pSocket.emit('gameStarted', {
+        // NEUES EVENT: 'gameInitialized'
+        pSocket.emit('gameInitialized', {
           playerId: p.id,
-          buttons: p.iconSymbols || [],
+          playerBoard: p.board,
           gameId: game.id,
           roomName: game.name,
-          initialPieces: game.collectedPieces || [],
-          pastelPalette: game.pastelPalette || roomConfig?.pastelPalette,
+          matchedSymbols: game.matchedSymbols,
+          pastelPalette: game.pastelPalette
         });
       }
     });
 
-    // Admin informieren und nächste Runde starten
-    if (game.adminSocketId && io.sockets.sockets.get(game.adminSocketId)) {
-      io.to(game.adminSocketId).emit('allPlayersReadyGameRunning', {
-        gameId: game.id,
-        message: 'Rounds are starting!',
-      });
-    }
-    
-    const playerListForUpdate = game.players.map(p => ({
-      id: p.id,
-      isReadyInLobby: p.isReadyInLobby,
-      ready: p.ready,
-    }));
-    
     io.emit('admin:roomStatusUpdate', {
       roomId: gameId,
       status: {
         isActive: true,
         isRunning: true,
         playerCount: game.players.length,
-        players: playerListForUpdate,
-        pastelPalette: game.pastelPalette,
-        maxPlayers: game.maxPlayers,
       },
     });
 
-    startNewRound(game);
+    // Wir starten keine Runde mehr aktiv, sondern warten auf Spieleraktionen
+    console.log(`[Game ${gameId}] Spiel initialisiert und an Spieler gesendet. Warte auf erste Karten-Flips.`);
+    game.currentTurn = { turnNumber: 1, choices: {}, isResolved: false };
+    io.to(game.id).emit('turnBegan', { turnNumber: 1, matchedSymbols: game.matchedSymbols });
   }
 });
 
@@ -895,163 +845,7 @@ socket.on('playerReadyForGame', ({ gameId }) => {
 
   // In server.js, innerhalb von io.on("connection", (socket) => { ... });
 
-  socket.on('buttonPress', ({ gameId, pressedSymbol }) => {
-    console.log(
-      `[Server] Event 'buttonPress' empfangen von Socket ${socket.id}: gameId=${gameId}, symbol=${pressedSymbol}`
-    );
-    const game = games[gameId];
-    const player = game ? game.players.find(p => p.id === socket.id) : null;
-
-    // Grundlegende Überprüfungen, ob der Tastendruck überhaupt gültig ist
-    if (
-      !game ||
-      !player ||
-      !game.isRunning ||
-      !game.currentRound ||
-      !game.currentRound.isActive
-    ) {
-      let errorMsg = 'Not in an active round.';
-      if (!game) errorMsg = 'Game not found.';
-      else if (!player) errorMsg = 'Player not found in this game.';
-      else if (!game.isRunning) errorMsg = 'Game is not currently running.';
-      else if (!game.currentRound || !game.currentRound.isActive)
-        errorMsg = 'Round has already ended.';
-
-      console.warn(
-        `[Game ${gameId}] Invalid button press by ${socket.id}. Reason: ${errorMsg}`
-      );
-      socket.emit('feedback', { correct: false, message: errorMsg });
-      return;
-    }
-
-    // Überprüfen, ob der richtige Spieler (der 'target') das richtige Symbol drückt
-    if (player.id === game.currentRound.targetId) {
-      if (pressedSymbol === game.currentRound.currentTargetSymbol) {
-        // --- KORREKTER TASTENDRUCK ---
-        game.currentRound.isActive = false; // Runde sofort als beendet markieren
-        const sourcePlayer = game.players.find(
-          p => p.id === game.currentRound.sourceId
-        );
-        const feedbackMessage = `Correct!`;
-
-        console.log(
-          `[Game ${gameId}] Player ${player.id} (target) pressed CORRECT symbol.`
-        );
-        io.to(gameId).emit('feedback', {
-          correct: true,
-          message: feedbackMessage,
-        });
-
-        // LOGIK FÜR TEILEGEWINN (PIECES)
-        // Prüfen, ob dies eine "Bonusrunde" ist (jede 3. Runde)
-        if (game.roundNumber > 0 && game.roundNumber % 3 === 0) {
-          const awardedPiece = game.currentRound.currentTargetSymbol;
-          if (!game.collectedPieces) game.collectedPieces = [];
-          game.collectedPieces.push(awardedPiece);
-
-          console.log(
-            `[Game ${gameId}] Team awarded a piece: '${awardedPiece}'. Total pieces: ${game.collectedPieces.length}`
-          );
-
-          // Informiere alle Spieler im Raum über das neu gewonnene Teil
-          io.to(gameId).emit('teamAwardedPiece', {
-            gameId: gameId,
-            pieceIcon: awardedPiece,
-            currentRoundNumber: game.roundNumber,
-          });
-
-          // SIEGBEDINGUNG PRÜFEN: Hat das Team 4 oder mehr Teile?
-          if (game.collectedPieces.length >= 4) {
-            console.log(
-              `[Game ${gameId}] VICTORY! Team has collected 4 pieces.`
-            );
-            game.isRunning = false; // Spiel anhalten
-            io.to(gameId).emit('gameEnded', {
-              reason: 'victory_pieces_collected',
-              message: 'You completed the game by collecting all Pieces!',
-              collectedPieces: game.collectedPieces,
-            });
-            setTimeout(() => {
-              if (games[gameId]) {
-                const roomConfig =
-                  PREDEFINED_ROOM_CONFIGS.find(r => r.id === gameId) || {};
-                io.emit('admin:roomStatusUpdate', {
-                  roomId: gameId,
-                  status: {
-                    isActive: false,
-                    isRunning: false,
-                    playerCount: 0,
-                    players: [],
-                  },
-                });
-                delete games[gameId];
-              }
-            }, 5000);
-            return; // WICHTIG: Keine neue Runde starten
-          }
-        }
-
-        // Wenn das Spiel nicht gewonnen wurde, starte die nächste Runde
-        setTimeout(() => {
-          if (games[gameId] && games[gameId].isRunning) {
-            startNewRound(game);
-          }
-        }, 3000);
-      } else {
-        // --- FALSCHES SYMBOL GEDRÜCKT ---
-        let feedbackMessage = `Oops, das war nicht das richtige Symbol!`;
-        console.log(
-          `[Game ${gameId}] Player ${player.id} (target) pressed INCORRECT symbol.`
-        );
-
-        // +++ LOGIK ZUM VERLIEREN EINES TEILS +++
-        if (game.collectedPieces && game.collectedPieces.length > 0) {
-          const lostPiece = game.collectedPieces.pop();
-          feedbackMessage += ' Das Team verliert ein Teil!';
-          console.log(
-            `[Game ${gameId}] Team lost a piece: ${lostPiece}. Remaining: ${game.collectedPieces.length}`
-          );
-          io.to(gameId).emit('teamLostPiece', {
-            gameId: gameId,
-            lostPieceIcon: lostPiece,
-            remainingPieces: game.collectedPieces,
-          });
-        }
-
-        socket.emit('feedback', {
-          correct: false,
-          message: feedbackMessage,
-          pressedByPlayerId: player.id,
-        });
-      }
-    } else {
-      // --- FALSCHER SPIELER HAT GEDRÜCKT ---
-      let feedbackMessage = `Warte, bis du an der Reihe bist!`;
-      console.log(
-        `[Game ${gameId}] Player ${player.id} (not target) pressed a symbol.`
-      );
-
-      // +++ LOGIK ZUM VERLIEREN EINES TEILS (identisch) +++
-      if (game.collectedPieces && game.collectedPieces.length > 0) {
-        const lostPiece = game.collectedPieces.pop();
-        feedbackMessage += ' Das Team verliert ein Teil!';
-        console.log(
-          `[Game ${gameId}] Team lost a piece due to wrong player action: ${lostPiece}. Remaining: ${game.collectedPieces.length}`
-        );
-        io.to(gameId).emit('teamLostPiece', {
-          gameId: gameId,
-          lostPieceIcon: lostPiece,
-          remainingPieces: game.collectedPieces,
-        });
-      }
-
-      socket.emit('feedback', {
-        correct: false,
-        message: feedbackMessage,
-        pressedByPlayerId: player.id,
-      });
-    }
-  });
+ 
 
   socket.on('admin:resetRoom', ({ roomId }) => {
     const game = games[roomId];
@@ -1099,12 +893,17 @@ socket.on('playerReadyForGame', ({ gameId }) => {
       socket.emit('admin:error', { message: 'Failed to reset room.' });
     }
   });
-  socket.on('leaveGame', ({ gameId }) => {
-    handlePlayerLeave(socket, gameId, true);
-  });
- // In server.js, innerhalb von io.on("connection", (socket) => { ... });
 
-// In server.js, innerhalb von io.on("connection", ...)
+socket.on("leaveGame", ({ gameId }) => {
+    const game = games[gameId];
+    if (!game) return;
+    const player = game.players.find(p => p.id === socket.id);
+    if(player) {
+        console.log(`[Game ${gameId}] Player ${player.persistentId} explicitly left the game.`);
+        // Ruft direkt die zentrale Funktion ohne Gnadenfrist auf
+        removePlayerFromGame(player.persistentId, gameId);
+    }
+});
 
 socket.on('disconnect', () => {
   console.log(`[Server] Socket disconnected: ${socket.id}`);
@@ -1159,25 +958,97 @@ socket.on('disconnect', () => {
   }
 });
 
-// Event, wenn ein Spieler aktiv auf "Verlassen" klickt
-socket.on("leaveGame", ({ gameId }) => {
-    const player = games[gameId]?.players.find(p => p.id === socket.id);
-    if(player) {
-        console.log(`[Game ${gameId}] Player ${player.persistentId} explicitly left the game.`);
-        // Spieler wird sofort und ohne Gnadenfrist entfernt
-        removePlayerFromGame(player.persistentId, gameId);
+// In server.js -> io.on('connection', socket => { ... HIER EINFÜGEN ... });
+
+function resolveTurn(game) {
+    const { choices } = game.currentTurn;
+    const choiceValues = Object.values(choices);
+    const firstChoice = choiceValues[0];
+    
+    // Prüfen, ob alle Spieler dasselbe Symbol gewählt haben
+    const allPlayersChoseSameSymbol = choiceValues.every(choice => choice === firstChoice);
+
+    if (allPlayersChoseSameSymbol) {
+        console.log(`[Game ${game.id}] Turn ${game.currentTurn.turnNumber} SUCCESS. All players chose '${firstChoice}'.`);
+        game.matchedSymbols.push(firstChoice);
+        
+        // Markiere das Symbol in den Boards aller Spieler als 'isMatched'
+        game.players.forEach(p => {
+            const card = p.board.find(c => c.symbol === firstChoice);
+            if(card) card.isMatched = true;
+        });
+
+        io.to(game.id).emit('turnSuccess', { 
+            symbol: firstChoice, 
+            matchedSymbols: game.matchedSymbols 
+        });
+
+        // Siegbedingung prüfen
+        if (game.matchedSymbols.length === game.gameSymbols.length) {
+            console.log(`[Game ${game.id}] VICTORY! All symbols matched.`);
+            game.isRunning = false;
+            io.to(game.id).emit('gameEnded', { 
+                reason: 'victory', 
+                message: 'Congratulations, you won!',
+                matchedSymbols: game.matchedSymbols
+            });
+            // TODO: Optional den Raum nach einer Weile aufräumen
+            return;
+        }
+
+    } else {
+        console.log(`[Game ${game.id}] Turn ${game.currentTurn.turnNumber} FAIL. Choices were different.`);
+        io.to(game.id).emit('turnFail', { choices });
+    }
+    
+    // Bereite die nächste Runde vor, egal ob Erfolg oder Fehlschlag
+    setTimeout(() => {
+        if (!games[game.id] || !games[game.id].isRunning) return;
+
+        const nextTurnNumber = game.currentTurn.turnNumber + 1;
+        game.currentTurn = { turnNumber: nextTurnNumber, choices: {}, isResolved: false };
+        io.to(game.id).emit('turnBegan', { 
+            turnNumber: nextTurnNumber, 
+            matchedSymbols: game.matchedSymbols 
+        });
+        console.log(`[Game ${game.id}] Starting turn ${nextTurnNumber}.`);
+
+    }, 3000); // 3 Sekunden Pause bis zur nächsten Runde
+}
+
+
+socket.on('playerFlippedCard', ({ gameId, cardIndex, symbol }) => {
+    const game = games[gameId];
+    if (!game || !game.isRunning || game.currentTurn.isResolved) return;
+    
+    const player = game.players.find(p => p.id === socket.id);
+    if (!player) return;
+
+    // Sicherheitscheck: Hat der Spieler diese Karte bereits gewählt?
+    if (game.currentTurn.choices[socket.id]) {
+        console.warn(`[Game ${gameId}] Player ${socket.id} tried to choose a second card in the same turn.`);
+        return;
+    }
+
+    console.log(`[Game ${gameId}] Turn ${game.currentTurn.turnNumber}: Player ${socket.id} chose symbol '${symbol}'.`);
+    game.currentTurn.choices[socket.id] = symbol;
+
+    // Informiere die anderen Spieler über diese Auswahl (für die Live-Anzeige)
+    socket.to(gameId).emit('playerChoiceUpdate', {
+        playerId: socket.id,
+        cardIndex: cardIndex,
+        symbol: symbol
+    });
+
+    // Prüfen, ob alle Spieler ihre Wahl getroffen haben
+    const activePlayers = game.players.filter(p => !p.disconnected);
+    if (Object.keys(game.currentTurn.choices).length === activePlayers.length) {
+        game.currentTurn.isResolved = true;
+        console.log(`[Game ${gameId}] All ${activePlayers.length} players have made a choice. Resolving turn.`);
+        resolveTurn(game);
     }
 });
 
-  // --- Hilfsfunktionen ---
-  // Innerhalb von io.on("connection", (socket) => { ... HIER });
-
-// In server.js
-
-/**
- * Startet den 10-sekündigen Countdown für die Lobby, wenn nicht schon aktiv.
- * @param {object} game - Die Spielinstanz.
- */
 function startLobbyCountdown(game) {
   // Verhindere, dass der Countdown mehrfach gestartet wird
   if (!game || game.lobbyCountdownTimerId) {
@@ -1235,245 +1106,8 @@ function startLobbyCountdown(game) {
   }, 1000);
 }
 
-function handlePlayerLeave(socket, roomId, explicitLeave) {
-  const game = games[roomId];
-  if (!game) return false;
-
-  const playerIndex = game.players.findIndex(p => p.id === socket.id);
-  if (playerIndex === -1) return false;
-
-  const leavingPlayer = { ...game.players[playerIndex] };
-  game.players.splice(playerIndex, 1);
-
-  if (leavingPlayer.ready && game.readyPlayerCount > 0) {
-    game.readyPlayerCount--;
-  }
-
-  const leaveType = explicitLeave ? 'explicitly left' : 'disconnected';
-  console.log(`[Game ${roomId}] Player with ID ${leavingPlayer.id} ${leaveType}. Remaining: ${game.players.length}`);
-
-  // Nachricht für Countdown-Abbruch ist jetzt anonym.
-  if (game.lobbyCountdownTimerId) {
-    console.log(`[Game ${roomId}] A player left during lobby countdown. Cancelling countdown.`);
-    clearInterval(game.lobbyCountdownTimerId);
-    game.lobbyCountdownTimerId = null;
-    game.lobbyCountdownEndTime = null;
-    io.to(roomId).emit('lobby:countdownCancelled', {
-      roomId,
-      message: `Countdown cancelled: A player left the lobby.`,
-    });
-  }
-
-  const playerListForUpdate = game.players.map(p => ({
-    id: p.id,
-    isReadyInLobby: p.isReadyInLobby || false,
-  }));
-  const roomConfig = PREDEFINED_ROOM_CONFIGS.find(r => r.id === roomId) || {};
-
-  const gameUpdatePayload = {
-    players: playerListForUpdate, 
-    gameId: roomId,
-    roomName: game.name,
-    pastelPalette: game.pastelPalette || roomConfig.pastelPalette,
-    maxPlayers: game.maxPlayers || roomConfig.maxPlayers,
-    message: `A player has left.`, 
-  };
-  io.to(roomId).emit('gameUpdate', gameUpdatePayload);
-
-  if (game.adminSocketId && io.sockets.sockets.get(game.adminSocketId)) {
-    io.to(game.adminSocketId).emit('admin:playerLeftRoom', {
-      roomId,
-      players: playerListForUpdate, 
-    });
-    if (game.started && !game.isRunning) {
-      io.to(game.adminSocketId).emit('playerReadyUpdate', {
-        gameId: roomId,
-        readyCount: game.readyPlayerCount,
-        totalPlayers: game.players.length,
-      });
-    }
-  }
 
 
-
-  // Die restliche Logik zum Beenden des Spiels bei zu wenigen Spielern etc. bleibt erhalten,
-  // da sie nicht von Namen abhängt.
-  let finalRoomIsActive = true;
-  let finalRoomIsRunning = game.isRunning && game.players.length >= 2;
-
-  if (game.started) {
-    if (game.players.length < 2) {
-      finalRoomIsRunning = false;
-      finalRoomIsActive = false;
-      io.to(roomId).emit('gameEnded', { reason: 'insufficient_players_mid_game', message: 'Not enough players.' });
-      if (game.adminSocketId && io.sockets.sockets.get(game.adminSocketId)) {
-        io.to(game.adminSocketId).emit('gameForceEnded', { roomId, message: 'Game ended: Not enough players.' });
-      }
-      delete games[roomId];
-    } else if (
-      game.currentRound &&
-      (game.currentRound.sourceId === leavingPlayer.id || game.currentRound.targetId === leavingPlayer.id)
-    ) {
-      if (game.isRunning) {
-        if (game.currentRound) game.currentRound.isActive = false;
-        startNewRound(game);
-      }
-    } else if (
-      game.started && !game.isRunning &&
-      game.readyPlayerCount === game.players.length && game.players.length > 0
-    ) {
-      game.isRunning = true;
-      finalRoomIsRunning = true;
-      if (!assignSymbolsToAllPlayersInGame(game)) return true; // Gib true zurück, um die Funktion hier zu beenden
-      game.players.forEach(p => {
-        const pSocket = io.sockets.sockets.get(p.id);
-        if (pSocket) pSocket.emit('gameStarted', {
-          playerId: p.id,
-          buttons: p.iconSymbols,
-          gameId: game.id,
-          roomName: game.name,
-        });
-      });
-      if (game.adminSocketId) io.to(game.adminSocketId).emit('allPlayersReadyGameRunning', { gameId: game.id });
-      startNewRound(game);
-    }
-  } else {
-    finalRoomIsRunning = false;
-  }
-
-  // Sende ein Update an die Admin-Übersicht, falls der Raum nicht schon gelöscht wurde
-  if (games[roomId]) {
-    io.emit('admin:roomStatusUpdate', {
-      roomId: roomId,
-      status: {
-        isActive: finalRoomIsActive,
-        isRunning: finalRoomIsRunning,
-        playerCount: game.players.length,
-        players: finalRoomIsActive ? playerListForUpdate : [],
-        pastelPalette: game.pastelPalette || roomConfig.pastelPalette,
-        maxPlayers: game.maxPlayers || roomConfig.maxPlayers,
-      },
-    });
-  }
-  return true;
-}
-
-  function startNewRound(game) {
-  if (!game || !game.players || game.players.length < 2) {
-    if (game && game.id) {
-      console.log(`[Game ${game.id}] Cannot start new round (not enough players: ${game.players?.length}). Ending game.`);
-      io.to(game.id).emit('gameEnded', { reason: 'insufficient_players_for_round', message: 'Not enough players.' });
-      if (io.sockets.sockets.get(game.adminSocketId)) {
-        io.to(game.adminSocketId).emit('gameForceEnded', { roomId: game.id, message: 'Game ended: Insufficient players.' });
-      }
-      const roomCfgForDelete = PREDEFINED_ROOM_CONFIGS.find(r => r.id === game.id) || {};
-      delete games[game.id];
-      io.emit('admin:roomStatusUpdate', {
-        roomId: game.id,
-        status: { isActive: false, isRunning: false, playerCount: 0, players: [], pastelPalette: roomCfgForDelete.pastelPalette, maxPlayers: roomCfgForDelete.maxPlayers },
-      });
-    }
-    return;
-  }
-  
-  game.roundNumber = (game.roundNumber || 0) + 1;
-  const currentRoundNumberForLog = game.roundNumber;
-  console.log(`[Game ${game.id}] Attempting to start round ${currentRoundNumberForLog}.`);
-  // GEÄNDERT: Log ohne Spielernamen
-  console.log(`[Game ${game.id}]   Players (IDs): ${game.players.map(p => p.id.substring(0,6)).join(', ')} (Count: ${game.players.length})`);
-  console.log(`[Game ${game.id}]   NextTargetPlayerIndex (before): ${game.nextTargetPlayerIndex}`);
-
-  const isPieceRound = game.roundNumber > 0 && game.roundNumber % 3 === 0;
-  if (isPieceRound) {
-    console.log(`[Game ${game.id}] This is a PIECE ROUND!`);
-  }
-
-  const sourcePlayer = game.players[Math.floor(Math.random() * game.players.length)];
-  // GEÄNDERT: Log ohne Spielernamen
-  console.log(`[Game ${game.id}]   Round ${currentRoundNumberForLog} - Source ID: ${sourcePlayer.id}`);
-
-  let targetPlayer = null;
-  const numPlayers = game.players.length;
-  let searchStartIndex = game.nextTargetPlayerIndex || 0;
-
-  for (let i = 0; i < numPlayers; i++) {
-    const currentPlayerIndexInLoop = (searchStartIndex + i) % numPlayers;
-    const candidatePlayer = game.players[currentPlayerIndexInLoop];
-    if (candidatePlayer.id !== sourcePlayer.id) {
-      targetPlayer = candidatePlayer;
-      game.nextTargetPlayerIndex = (currentPlayerIndexInLoop + 1) % numPlayers;
-      break;
-    }
-  }
-
-  if (!targetPlayer) {
-    console.warn(`[Game ${game.id}] Round ${currentRoundNumberForLog} - Primary target selection FAILED. Fallback.`);
-    const otherPlayers = game.players.filter(p => p.id !== sourcePlayer.id);
-    if (otherPlayers.length > 0) {
-      targetPlayer = otherPlayers[Math.floor(Math.random() * otherPlayers.length)];
-      const actualTargetIdx = game.players.findIndex(p => p.id === targetPlayer.id);
-      if (actualTargetIdx !== -1) game.nextTargetPlayerIndex = (actualTargetIdx + 1) % numPlayers;
-      else game.nextTargetPlayerIndex = 0;
-    } else {
-      console.error(`[Game ${game.id}] CRITICAL FALLBACK: No other players. Ending game.`);
-      io.to(game.id).emit('gameEnded', { reason: 'internal_error_no_target_fb', message: 'Error: No target.' });
-      if (io.sockets.sockets.get(game.adminSocketId)) io.to(game.adminSocketId).emit('gameForceEnded', { roomId: game.id, message: 'Error: No target.' });
-      const roomCfgForDeleteCrit = PREDEFINED_ROOM_CONFIGS.find(r => r.id === game.id) || {};
-      delete games[game.id];
-      io.emit('admin:roomStatusUpdate', {
-        roomId: game.id,
-        status: { isActive: false, isRunning: false, playerCount: 0, players: [], pastelPalette: roomCfgForDeleteCrit.pastelPalette, maxPlayers: roomCfgForDeleteCrit.maxPlayers },
-      });
-      return;
-    }
-  }
-  // GEÄNDERT: Log ohne Spielernamen
-  console.log(`[Game ${game.id}]   Round ${currentRoundNumberForLog} - Target ID: ${targetPlayer.id}. Next target search index: ${game.nextTargetPlayerIndex}`);
-
-  if (!targetPlayer.iconSymbols || targetPlayer.iconSymbols.length === 0) {
-    console.error(`[Game ${game.id}] CRITICAL: Target player ${targetPlayer.id} has no iconSymbols!`);
-    return; // Runde kann nicht gestartet werden
-  }
-
-  const targetSymbolIndexOnTargetDevice = Math.floor(Math.random() * targetPlayer.iconSymbols.length);
-  const currentTargetSymbol = targetPlayer.iconSymbols[targetSymbolIndexOnTargetDevice];
-  game.currentRound = {
-    sourceId: sourcePlayer.id,
-    targetId: targetPlayer.id,
-    currentTargetSymbol,
-    targetSymbolIndexOnTargetDevice,
-    isActive: true,
-    roundNumber: game.roundNumber,
-  };
-  // GEÄNDERT: Log ohne Spielernamen
-  console.log(`[Game ${game.id}] Round ${game.roundNumber} setup: Source ID=${sourcePlayer.id}, Target ID=${targetPlayer.id}, Symbol=${currentTargetSymbol}.`);
-
-  game.players.forEach(player => {
-    let payload = {
-      role: 'inactive',
-      currentTargetSymbol,
-      roundNumber: game.roundNumber,
-      isPieceRound: isPieceRound,
-    };
-    if (player.id === sourcePlayer.id) payload.role = 'source';
-    else if (player.id === targetPlayer.id) {
-      payload.role = 'target';
-      payload.yourTargetIndex = targetSymbolIndexOnTargetDevice;
-    }
-    const pSocket = io.sockets.sockets.get(player.id);
-    if(pSocket) pSocket.emit('roundUpdate', payload);
-  });
-  if (game.adminSocketId) {
-    io.to(game.adminSocketId).emit('roundStartedForHost', {
-      gameId: game.id,
-      roundNumber: game.roundNumber,
-      sourcePlayer: { id: sourcePlayer.id },
-      targetPlayer: { id: targetPlayer.id },
-      targetSymbol: currentTargetSymbol,
-      isPieceRound: isPieceRound,
-    });
-  }
-}
 });
 
 app.get('*', (req, res) => {

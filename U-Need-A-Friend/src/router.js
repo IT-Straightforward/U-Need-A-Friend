@@ -1,7 +1,6 @@
 // src/router.js
 import { createRouter, createWebHistory } from 'vue-router';
 import AdminPanel from '@/components/AdminPanel.vue';
-import JoinGame from '@/components/JoinGame.vue';
 import Game from '@/components/Game.vue';
 import WaitingRoom from '@/components/WaitingRoom.vue';
 import { useGameSessionStore } from '@/stores/gameSessionStore';
