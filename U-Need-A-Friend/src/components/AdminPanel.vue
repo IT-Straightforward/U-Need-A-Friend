@@ -89,14 +89,20 @@
           <h4>Room Actions:</h4>
         </div>
 
-        <div v-if="selectedRoomData.isRunning && currentRoundInfo.roundNumber" class="round-info-admin">
-          <h4>Current Round: {{ currentRoundInfo.roundNumber }}</h4>
-          <p>
-            Source: <strong>Spieler {{ playerIndexMap[currentRoundInfo.sourcePlayer?.id] + 1 || '?' }}</strong> |
-            Target: <strong>Spieler {{ playerIndexMap[currentRoundInfo.targetPlayer?.id] + 1 || '?' }}</strong> |
-            Symbol: <span class="symbol-display">{{ currentRoundInfo.targetSymbol }}</span>
-          </p>
-        </div>
+       <div v-if="selectedRoomData.isRunning" class="progress-info-admin">
+  <h4>Game Progress</h4>
+  <div class="matched-symbols-container-admin">
+    <div v-for="symbol in selectedRoomDetails.matchedSymbols" :key="symbol" class="piece-slot-admin">
+      <GameIcon :iconName="symbol" :themeFolder="selectedRoom.id.toLowerCase()" />
+    </div>
+  </div>
+  <div v-if="selectedRoomDetails.currentTurn" class="turn-status-admin">
+    <p>
+      <strong>Turn:</strong> {{ selectedRoomDetails.currentTurn.turnNumber }} | 
+      <strong>Choices:</strong> {{ selectedRoomDetails.currentTurn.choicesCount }} / {{ selectedRoomData.players.length }}
+    </p>
+  </div>
+</div>
       </div>
       
       <div v-if="gameIsEffectivelyOver && selectedRoom" class="game-over-admin-detail">
@@ -129,12 +135,27 @@ const activatingRoomId = ref(null);
 const startingGameId = ref(null);
 const resettingRoomId = ref(null);
 const actionMessage = ref('');
-const currentRoundInfo = reactive({
-  roundNumber: 0,
-  sourcePlayer: null, // Objekt { id }
-  targetPlayer: null, // Objekt { id }
-  targetSymbol: ''
+const selectedRoomDetails = reactive({
+    matchedSymbols: [],
+    currentTurn: null
 });
+
+// Neuer Handler für die Admin-Ansicht
+const handleRoomDetailsUpdate = (data) => {
+    if (selectedRoom.value && selectedRoom.value.id === data.roomId) {
+        if (data.status) { // von roomStatusUpdate
+            Object.assign(selectedRoomData, data.status);
+            if (data.status.matchedSymbols) selectedRoomDetails.matchedSymbols = data.status.matchedSymbols;
+            if (data.status.currentTurn) selectedRoomDetails.currentTurn = data.status.currentTurn;
+        }
+        if (data.details) { // von getRoomDetails
+            Object.assign(selectedRoomData, data.details);
+            selectedRoomDetails.matchedSymbols = data.details.matchedSymbols || [];
+            selectedRoomDetails.currentTurn = data.details.currentTurn || null;
+        }
+    }
+};
+
 
 // --- Computed Properties ---
 
@@ -168,8 +189,13 @@ const handleRoomStatusUpdate = (updatedRoom) => {
   if (roomInList && updatedRoom.status) {
     Object.assign(roomInList, updatedRoom.status);
   }
+  
   if (selectedRoom.value && selectedRoom.value.id === updatedRoom.roomId && updatedRoom.status) {
     Object.assign(selectedRoomData, updatedRoom.status);
+    
+    if (updatedRoom.status.matchedSymbols) selectedRoomDetails.matchedSymbols = updatedRoom.status.matchedSymbols;
+    if (updatedRoom.status.currentTurn) selectedRoomDetails.currentTurn = updatedRoom.status.currentTurn;
+
     if (!updatedRoom.status.isActive) gameIsEffectivelyOver.value = true;
   }
 };
@@ -182,14 +208,8 @@ const handleAdminPlayerJoinedOrLeft = (data) => {
     if (roomInList) roomInList.playerCount = (data.players || []).length;
 };
 
-const handleRoundStartedForAdmin = (data) => {
-  if (selectedRoom.value && selectedRoom.value.id === data.gameId) {
-    currentRoundInfo.roundNumber = data.roundNumber;
-    currentRoundInfo.sourcePlayer = data.sourcePlayer; // Objekt mit { id }
-    currentRoundInfo.targetPlayer = data.targetPlayer; // Objekt mit { id }
-    currentRoundInfo.targetSymbol = data.targetSymbol;
-  }
-};
+
+
 
 const handleAdminError = (errorData) => {
     errorMessage.value = errorData.message || 'An admin error occurred.';
@@ -204,11 +224,10 @@ onMounted(() => {
   socket.emit('admin:getRoomOverview', (overview) => {
     handleRoomOverview(overview || []);
   });
-
+   socket.on('admin:roomDetailsUpdate', handleRoomDetailsUpdate); 
   socket.on('admin:roomStatusUpdate', handleRoomStatusUpdate);
   socket.on('admin:playerJoinedRoom', handleAdminPlayerJoinedOrLeft);
   socket.on('admin:playerLeftRoom', handleAdminPlayerJoinedOrLeft);
-  socket.on('roundStartedForHost', handleRoundStartedForAdmin);
   socket.on('admin:error', handleAdminError);
 });
 
@@ -221,16 +240,25 @@ onUnmounted(() => {
 });
 
 // --- Methoden ---
+// In AdminPanel.vue -> <script setup>
+
 function selectRoom(room) {
   selectedRoom.value = { ...room };
   actionMessage.value = '';
   errorMessage.value = '';
   gameIsEffectivelyOver.value = !room.isActive;
 
+  // Setze die Detail-Infos immer zurück, wenn ein neuer Raum gewählt wird
+  selectedRoomDetails.matchedSymbols = [];
+  selectedRoomDetails.currentTurn = null;
+
   if (room.isActive) {
     socket.emit('admin:getRoomDetails', { roomId: room.id }, (response) => {
-      if (response.success) {
+      if (response.success && response.details) {
         Object.assign(selectedRoomData, response.details);
+        // Fülle die neuen Detail-Objekte aus der Antwort
+        selectedRoomDetails.matchedSymbols = response.details.matchedSymbols || [];
+        selectedRoomDetails.currentTurn = response.details.currentTurn || null;
       } else {
         errorMessage.value = response.error;
       }
@@ -239,9 +267,11 @@ function selectRoom(room) {
     selectedRoomData.isActive = false;
     selectedRoomData.isRunning = false;
     selectedRoomData.players = [];
-    currentRoundInfo.roundNumber = 0;
   }
 }
+
+
+
 
 function deselectRoom() {
   selectedRoom.value = null;
