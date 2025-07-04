@@ -24,9 +24,7 @@
         </div>
       </div>
       
-      <p v-if="gameMessage" class="game-message" :class="{ error: isErrorMessage }">
-        {{ gameMessage }}
-      </p>
+
       <button v-if="!gameIsEffectivelyOver" class="leave-btn" @click="triggerLeaveGame">
         Leave Game
       </button>
@@ -53,17 +51,13 @@ const router = useRouter();
 const gameSessionStore = useGameSessionStore();
 const { currentThemeFolder } = storeToRefs(gameSessionStore);
 
-// --- NEUER ZUSTAND für das Memory-Spiel ---
-const playerBoard = ref([]); // Das 3x3-Board des Spielers, Format: [{ symbol, isFlipped, isMatched }]
-const matchedSymbols = ref([]); // Die oben in der Leiste gezeigten, gefundenen Symbole
+// --- Zustand ---
+const playerBoard = ref([]);
 const turnNumber = ref(0);
-const canFlipCard = ref(false); // Kontrolliert, ob der Spieler eine Karte umdrehen darf
-
-const gameMessage = ref("Initializing game connection...");
-const isErrorMessage = ref(false);
+const canFlipCard = ref(false);
 const gameIsEffectivelyOver = ref(false);
 
-// --- Computed Properties & Styles (bleiben größtenteils gleich) ---
+// --- Style-Zustand ---
 const roomBgColor = ref("#fafafa");
 const roomPrimaryColor = ref("#e0e0e0");
 const computedContainerStyle = computed(() => ({
@@ -79,17 +73,12 @@ watch(roomBgColor, (newColor) => {
   { immediate: true }
 );
 
-
-// --- NEUE SOCKET EVENT HANDLER ---
-
+// --- Socket Event Handler ---
 const handleGameInitialized = (data) => {
+  console.log("[Game] Game Initialized:", data);
   if (data.gameId !== props.gameId) return;
-  
   playerBoard.value = data.playerBoard;
-  matchedSymbols.value = data.matchedSymbols || [];
   gameIsEffectivelyOver.value = false;
-  isErrorMessage.value = false;
-  
   if (data.pastelPalette) {
     roomBgColor.value = data.pastelPalette.primary;
     roomPrimaryColor.value = data.pastelPalette.accent3;
@@ -98,69 +87,46 @@ const handleGameInitialized = (data) => {
 
 const handleTurnBegan = (data) => {
   turnNumber.value = data.turnNumber;
-  gameMessage.value = `Round ${turnNumber.value}`;
-  isErrorMessage.value = false;
-  
-  // Drehe alle nicht-gematchten Karten wieder auf die Rückseite
   playerBoard.value.forEach(card => {
     if (!card.isMatched) {
       card.isFlipped = false;
     }
   });
-
-  canFlipCard.value = true; // Spieler darf jetzt eine Karte wählen
+  canFlipCard.value = true; 
 };
 
 const handleTurnSuccess = (data) => {
-  gameMessage.value = `A Match! You found ${data.symbol}!`;
-  matchedSymbols.value = data.matchedSymbols;
-
-  // Finde die entsprechende Karte im lokalen Board und markiere sie als gematcht
   const matchedCard = playerBoard.value.find(c => c.symbol === data.symbol);
   if (matchedCard) {
     matchedCard.isMatched = true;
   }
 };
 
-const handleTurnFail = (data) => {
-  gameMessage.value = "Sorry, no match... Try again!";
-  isErrorMessage.value = true;
-  // Das Zurückdrehen der Karten wird vom nächsten 'turnBegan'-Event gesteuert.
+const handleTurnFail = () => {
+  // Keine visuelle Nachricht, das Zurückdrehen der Karten in der nächsten Runde ist Feedback genug.
 };
 
-const handleTurnWasReset = (data) => {
-  gameMessage.value = data.message || "Round will reset.";
-  isErrorMessage.value = true;
-  // Warte auf das nächste 'turnBegan' Event
+const handleTurnWasReset = () => {
   canFlipCard.value = false;
 };
 
-const handleGameEnded = (data) => {
-  gameMessage.value = `${data.message || data.reason}`;
-  isErrorMessage.value = (data.reason !== 'victory');
+const handleGameEnded = () => {
   gameIsEffectivelyOver.value = true;
   canFlipCard.value = false;
 };
 
-const handleGameError = (data) => {
-  gameMessage.value = `Fehler: ${data.message || "Ein unbekannter Fehler ist aufgetreten."}`;
-  isErrorMessage.value = true;
+const handleGameError = () => {
   gameIsEffectivelyOver.value = true;
 };
 
-
-// --- METHODEN ---
-
+// --- Methoden ---
 function handleCardFlip(card, index) {
   if (!canFlipCard.value || card.isFlipped || card.isMatched) {
-    return; // Ungültiger Zug
+    return; 
   }
-  
-  // Optimistisches Update: Karte sofort umdrehen
   card.isFlipped = true;
-  canFlipCard.value = false; // Sperre weitere Züge für diese Runde
+  canFlipCard.value = false; 
 
-  // Sende die Auswahl an den Server
   socket.emit("playerFlippedCard", {
     gameId: props.gameId,
     cardIndex: index,
@@ -175,10 +141,7 @@ function triggerLeaveGame() {
   router.replace("/");
 }
 
-
-// --- LIFECYCLE & SOCKET SETUP ---
-
-
+// --- Lifecycle Hooks ---
 onMounted(() => {
   socket.on("gameInitialized", handleGameInitialized);
   socket.on("turnBegan", handleTurnBegan);
@@ -200,13 +163,9 @@ onMounted(() => {
     },
     (response) => {
       if (response && response.success) {
-        console.log("[Game.vue] Join/Reconnect zur Spiel-Session erfolgreich.");
-        
-  
         socket.emit('playerReadyForGame', { gameId: props.gameId });
-        
       } else {
-        alert("Konnte nicht wieder mit dem Spiel verbinden. Es wurde möglicherweise beendet.");
+        alert("Konnte nicht wieder mit dem Spiel verbinden.");
         router.replace("/");
       }
     }
@@ -214,7 +173,6 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  // Räume die neuen Listener auf
   socket.off("gameInitialized", handleGameInitialized);
   socket.off("turnBegan", handleTurnBegan);
   socket.off("turnSuccess", handleTurnSuccess);
@@ -222,7 +180,6 @@ onUnmounted(() => {
   socket.off("turnWasReset", handleTurnWasReset);
   socket.off("gameEnded", handleGameEnded);
   socket.off("gameError", handleGameError);
-
   document.body.style.backgroundColor = "";
   document.body.style.transition = "";
 });
