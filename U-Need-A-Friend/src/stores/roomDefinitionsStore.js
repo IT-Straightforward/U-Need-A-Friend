@@ -9,13 +9,8 @@ export const useRoomDefinitionsStore = defineStore('roomDefinitions', () => {
   const error = ref(null);
 
   async function fetchRoomDefinitions() {
-    // Nur laden, wenn noch nicht geladen und kein Fehler vorliegt
     if ((rooms.value.length > 0 && !error.value) || isLoading.value) {
-      // Wenn schon geladen oder gerade am Laden, nichts tun oder Promise für aktuellen Ladevorgang zurückgeben
-      // Für Einfachheit hier: return;
       if (isLoading.value) {
-        // Warten, bis der aktuelle Ladevorgang abgeschlossen ist (erfordert komplexere Promise-Handhabung)
-        // oder einfach abbrechen, um doppeltes Laden zu vermeiden.
         console.log('[RoomDefinitionsStore] Ladevorgang läuft bereits.');
         return;
       }
@@ -33,20 +28,11 @@ export const useRoomDefinitionsStore = defineStore('roomDefinitions', () => {
       // Listener für die Daten-Antwort (nur einmal ausführen)
       socket.once('predefined-rooms-data', (data) => {
         console.log('[RoomDefinitionsStore] Raumdefinitionen über Socket empfangen:', data);
-
-        // Wenn ihr Option B (Konvention) verwendet und themeFolder nicht in der JSON ist:
-        // rooms.value = data.map(room => ({
-        //   ...room,
-        //   themeFolder: room.themeFolder || room.id.toLowerCase() // Theme-Ordner ableiten
-        // }));
-        // Wenn themeFolder bereits in der JSON ist (Option A):
         rooms.value = data;
-
         isLoading.value = false;
-        resolve(rooms.value); // Das Promise mit den Daten auflösen
+        resolve(rooms.value);
       });
 
-      // Listener für eine Fehler-Antwort (nur einmal ausführen)
       socket.once('predefined-rooms-error', (errorData) => {
         console.error('[RoomDefinitionsStore] Fehler beim Empfangen der Raumdefinitionen über Socket:', errorData);
         error.value = errorData.message || 'Unbekannter Socket-Fehler';
@@ -55,7 +41,7 @@ export const useRoomDefinitionsStore = defineStore('roomDefinitions', () => {
       });
 
       // Den Request an den Server senden
-      socket.emit('request-predefined-rooms');
+      socket.emit('request-room');
 
       // Optional: Timeout für die Anfrage
       setTimeout(() => {

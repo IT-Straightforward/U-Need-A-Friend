@@ -23,10 +23,6 @@
           </div>
         </div>
       </div>
-      
-      <p v-if="gameMessage" class="game-message" :class="{ error: isErrorMessage }">
-        {{ gameMessage }}
-      </p>
       <button v-if="!gameIsEffectivelyOver" class="leave-btn" @click="triggerLeaveGame">
         Leave Game
       </button>
@@ -76,20 +72,30 @@ watch(roomBgColor, (newColor) => {
       document.body.style.transition = "background-color 0.5s ease";
     }
   },
-  { immediate: true }
+  { immediate: true });
+  watch(playerBoard, (newBoard) => {
+    // Wenn das Board aktualisiert wird, stelle sicher, dass alle Karten korrekt initialisiert sind
+    console.log("[Game.vue] Player board updated:", newBoard);
+    newBoard.forEach(card => {
+      card.isFlipped = false;
+      card.isMatched = false;
+    });
+  }, { immediate: true }
 );
 
 
 // --- NEUE SOCKET EVENT HANDLER ---
 
 const handleGameInitialized = (data) => {
+  console.log("[Game.vue] Spiel initialisiert:", data);
   if (data.gameId !== props.gameId) return;
-  
+   if (data.themeFolder) {
+    gameSessionStore.setCurrentThemeFolder(data.themeFolder);
+  }
   playerBoard.value = data.playerBoard;
   matchedSymbols.value = data.matchedSymbols || [];
   gameIsEffectivelyOver.value = false;
-  isErrorMessage.value = false;
-  
+
   if (data.pastelPalette) {
     roomBgColor.value = data.pastelPalette.primary;
     roomPrimaryColor.value = data.pastelPalette.accent3;
@@ -98,24 +104,16 @@ const handleGameInitialized = (data) => {
 
 const handleTurnBegan = (data) => {
   turnNumber.value = data.turnNumber;
-  gameMessage.value = `Round ${turnNumber.value}`;
-  isErrorMessage.value = false;
-  
-  // Drehe alle nicht-gematchten Karten wieder auf die Rückseite
   playerBoard.value.forEach(card => {
     if (!card.isMatched) {
       card.isFlipped = false;
     }
   });
 
-  canFlipCard.value = true; // Spieler darf jetzt eine Karte wählen
+  canFlipCard.value = true; 
 };
 
 const handleTurnSuccess = (data) => {
-  gameMessage.value = `A Match! You found ${data.symbol}!`;
-  matchedSymbols.value = data.matchedSymbols;
-
-  // Finde die entsprechende Karte im lokalen Board und markiere sie als gematcht
   const matchedCard = playerBoard.value.find(c => c.symbol === data.symbol);
   if (matchedCard) {
     matchedCard.isMatched = true;
@@ -123,28 +121,20 @@ const handleTurnSuccess = (data) => {
 };
 
 const handleTurnFail = (data) => {
-  gameMessage.value = "Sorry, no match... Try again!";
-  isErrorMessage.value = true;
-  // Das Zurückdrehen der Karten wird vom nächsten 'turnBegan'-Event gesteuert.
+
 };
 
 const handleTurnWasReset = (data) => {
-  gameMessage.value = data.message || "Round will reset.";
-  isErrorMessage.value = true;
-  // Warte auf das nächste 'turnBegan' Event
+
   canFlipCard.value = false;
 };
 
 const handleGameEnded = (data) => {
-  gameMessage.value = `${data.message || data.reason}`;
-  isErrorMessage.value = (data.reason !== 'victory');
   gameIsEffectivelyOver.value = true;
   canFlipCard.value = false;
 };
 
 const handleGameError = (data) => {
-  gameMessage.value = `Fehler: ${data.message || "Ein unbekannter Fehler ist aufgetreten."}`;
-  isErrorMessage.value = true;
   gameIsEffectivelyOver.value = true;
 };
 
@@ -153,14 +143,12 @@ const handleGameError = (data) => {
 
 function handleCardFlip(card, index) {
   if (!canFlipCard.value || card.isFlipped || card.isMatched) {
-    return; // Ungültiger Zug
+    return; 
   }
-  
-  // Optimistisches Update: Karte sofort umdrehen
-  card.isFlipped = true;
-  canFlipCard.value = false; // Sperre weitere Züge für diese Runde
 
-  // Sende die Auswahl an den Server
+  card.isFlipped = true;
+  canFlipCard.value = false; 
+
   socket.emit("playerFlippedCard", {
     gameId: props.gameId,
     cardIndex: index,
@@ -325,21 +313,6 @@ onUnmounted(() => {
 }
 
 /* --- Nachrichten und Buttons --- */
-.game-message {
-  font-size: 1.1rem;
-  color: #333;
-  min-height: 1.5em;
-  padding: 0.5rem;
-  border-radius: 4px;
-  text-align: center;
-  width: 100%;
-  font-weight: bold;
-}
-.game-message.error {
-  background-color: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
-}
 .leave-btn {
   background: #d9534f;
   color: white;

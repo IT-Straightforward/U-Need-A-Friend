@@ -176,6 +176,7 @@ const handleGoToGame = (data) => {
 };
 
 const handleLobbyCountdownStarted = (data) => {
+  console.log("Coutndown gestartet:", data);
   if (data.roomId === props.gameId) {
     countdownEndTime.value = data.endTime;
     statusMessage.value = "";

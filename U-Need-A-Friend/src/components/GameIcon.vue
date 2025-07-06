@@ -36,7 +36,7 @@ async function loadIcon() {
   try {
     // Dynamischer Import von PNGs. Vite gibt die korrekte, öffentliche URL zum Bild zurück.
     // Das ist die moderne Methode, um mit Assets umzugehen, die im Build-Prozess verarbeitet werden.
-    const imageModule = await import(`../assets/icons/${props.themeFolder}/${props.iconName}.png`);
+  const imageModule = await import(`@/assets/icons/${props.themeFolder}/${props.iconName}.png`);
     imageUrl.value = imageModule.default;
   } catch (e) {
     console.error(`Icon nicht gefunden: src/assets/icons/${props.themeFolder}/${props.iconName}.png`, e);
@@ -45,7 +45,7 @@ async function loadIcon() {
     if (props.themeFolder !== 'default') {
       try {
         console.warn(`Versuche Fallback auf default Theme für Icon: ${props.iconName}`);
-        const fallbackModule = await import(`../assets/icons/default/${props.iconName}.png`);
+        const fallbackModule = await import(`@/assets/icons/default/${props.iconName}.png`);
         imageUrl.value = fallbackModule.default;
       } catch (e2) {
         console.error(`Fallback Icon auch nicht gefunden: src/assets/icons/default/${props.iconName}.png`, e2);
