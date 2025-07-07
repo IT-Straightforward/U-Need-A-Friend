@@ -774,14 +774,14 @@ socket.on('playerMadeSelection', ({ gameId, cardIndex, symbol }) => {
 
     const roomId = game.roomId;
     console.log(
-      `[Game ${roomId}] Alle Spieler bereit. Automatischer 10s Countdown wird gestartet.`
+      `[Game ${roomId}] Alle Spieler bereit. Automatischer 8s Countdown wird gestartet.`
     );
 
-    game.lobbyCountdownEndTime = Date.now() + 10000;
+    game.lobbyCountdownEndTime = Date.now() + 8000;
 
     io.to(roomId).emit('lobby:countdownStarted', {
       roomId,
-      duration: 10,
+      duration: 8,
       endTime: game.lobbyCountdownEndTime,
     });
 

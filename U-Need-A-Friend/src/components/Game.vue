@@ -203,6 +203,7 @@ onMounted(() => {
   const persistentPlayerId = sessionStorage.getItem('myGamePlayerId');
   if (!persistentPlayerId) {
     router.replace('/');
+    console.log('[Game.vue] Kein persistentPlayerId gefunden. Zurück zur Startseite.');
     return;
   }
 
