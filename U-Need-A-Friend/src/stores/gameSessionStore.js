@@ -17,12 +17,15 @@ export const useGameSessionStore = defineStore('gameSession', () => {
       console.warn('[Pinia Store] Attempted to set invalid theme name:', themeName);
     }
   }
+  function setCurrentThemeFolder(theme) {
+    console.log(`[Pinia Store] Current theme folder set to: ${theme}`);
+    currentThemeFolder.value = theme;
+  }
 
-  // Getters (Computed Properties für den Store) sind hier nicht unbedingt nötig,
-  // aber currentThemeFolder ist bereits reaktiv.
 
   return {
-    currentThemeFolder, // Wird als ref verfügbar gemacht
-    setCurrentTheme
+    currentThemeFolder,
+    setCurrentTheme,
+    setCurrentThemeFolder
   }
 })

@@ -1,144 +1,151 @@
 <template>
-  <div class="waiting-room-app-container" :style="computedRoomStyle" ref="containerRef">
-    <h2 class="room-title-main">{{ roomDisplayName || gameId }}</h2>
-
-    <div 
-      class="bubble-base player-count-bubble" 
-      :style="bubbles.playerCount.style"> 
-      <span class="bubble-text">Spieler</span>
-      <span class="bubble-text-prominent">{{ players.length }} / {{ maxPlayersInRoom || '?' }}</span>
-      <div v-if="countdownTime !== null" class="countdown-overlay">
-        {{ countdownTime }}s
+  <div
+    class="waiting-room-app-container"
+    :style="computedRoomStyle"
+    ref="containerRef"
+  >
+    <h2 class="room-title-main">Memory Breakout</h2>
+    <div class="device-box">
+      <div class="card-grid">
+        <div
+          v-for="(card, index) in cardGrid"
+          :key="`card-${index}`"
+          class="card-container"
+          :class="{
+            'is-ready-button': card.isReadyButton,
+            'disabled-during-countdown': isCountdownActive,
+          }"
+          @click="card.isReadyButton && toggleReadyStatus()"
+        >
+          <div class="card-inner" :class="{ 'is-flipped': card.isFlipped }">
+            <div class="card-face card-back">
+              <!-- Back face = Ready button -->
+              <div v-if="card.isReadyButton" class="ready-button-content">
+                <span v-if="!isTogglingReady">Ready?</span>
+                <span v-else>...</span>
+              </div>
+              <span v-else>?</span>
+            </div>
+            <div class="card-face card-front">
+              <!-- Front face = Player count for center -->
+              <div v-if="card.isReadyButton">
+                <span class="bubble-text">
+                  {{ players.filter(p => p.isReadyInLobby).length }} /
+                  {{ maxPlayersInRoom || '?' }}
+                </span>
+              </div>
+              <img
+                v-else
+                :src="card.iconUrl"
+                alt="icon"
+                class="game-png-icon"
+              />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <button 
-      class="bubble-base ready-bubble-button" 
-      @click="toggleReadyStatus" 
-      :disabled="isJoining || isTogglingReady" 
-      :class="{'is-ready': myReadyStatus, 'disabled-during-countdown': countdownTime !== null}"
-      :style="bubbles.readyButton.style">
-      <span v-if="!isTogglingReady" class="bubble-text">
-        <span v-if="myReadyStatus">Bereit! ✓</span>
-        <span v-else>Bereit?</span>
-      </span>
-      <span v-else class="bubble-text">...</span>
-    </button>
-
-    <button 
-      class="bubble-base leave-bubble-button" 
-      @click="triggerLeaveGame" 
-      :style="bubbles.leaveButton.style">
-      <span class="bubble-text">Verlassen</span>
-    </button>
-
-    <div v-if="statusMessage && countdownTime === null && !gameIsOver" class="floating-status-message">
+    <div
+      v-if="statusMessage && !isCountdownActive && !gameIsOver"
+      class="floating-status-message"
+    >
       {{ statusMessage }}
     </div>
 
     <div v-if="gameIsOver" class="game-over-overlay">
       <p class="game-over-text">{{ statusMessage }}</p>
-      <router-link to="/" class="bubble-base back-to-join-bubble-gameover">Zurück</router-link>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted, computed, nextTick, inject, watch } from 'vue';
-import { useGameSessionStore } from '@/stores/gameSessionStore';
+import { ref, onMounted, onUnmounted, computed, inject, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import bubbleBluePath from '@/assets/bubble-blue.png'; 
-import bubbleGreenPath from '@/assets/bubble-green.png';
-import bubbleYellowPath from '@/assets/bubble-yellow.png';
-import bubbleRedPath from '@/assets/bubble-red.png';
+
+// --- Dynamic Icon Import ---
+const iconModules = import.meta.glob('@/assets/icons/studio/*.png', {
+  eager: true,
+});
+const availableIcons = Object.values(iconModules).map(module => module.default);
+
+// Clockwise order of card indices in a 3x3 grid (0-8), skipping the center (4).
+const clockwiseOrder = [0, 1, 2, 5, 8, 7, 6, 3];
 
 const props = defineProps({
-  gameId: { type: String, required: true }
+  gameId: { type: String, required: true },
 });
 
 const socket = inject('socket');
 const router = useRouter();
-const gameSessionStore = useGameSessionStore(); 
 
-// --- Zustand ---
+// --- State ---
 const players = ref([]);
-const roomDisplayName = ref(''); 
+const roomDisplayName = ref('');
 const roomBGColor = ref('#cfcfcf');
 const roomAccentColor1 = ref('#e8e8e8');
 const roomAccentColor2 = ref('#dcdcdc');
-const roomAccentColor3 = ref('#f5f5f5');
-const maxPlayersInRoom = ref(null); 
-const statusMessage = ref('Trete dem Spiel bei...');
+const maxPlayersInRoom = ref(null);
+const statusMessage = ref('Joining game...');
 const gameIsOver = ref(false);
-const myReadyStatus = ref(false); 
-const isTogglingReady = ref(false); 
-const isJoining = ref(true); 
-const countdownTime = ref(null); 
-const countdownEndTime = ref(null);
-let localCountdownIntervalId = null;
-let animationFrameId = null;
-const containerRef = ref(null);
+const myReadyStatus = ref(false);
+const isTogglingReady = ref(false);
+const isJoining = ref(true);
+const isCountdownActive = ref(false);
+let countdownAnimationInterval = null;
+const cardGrid = ref([]);
 
-const bubbles = reactive({
-  playerCount: { x: 200, y: 50, vx: 0.25, vy: 0.35, width: 100, height: 100, imagePath: bubbleBluePath, style: {} }, 
-  readyButton: { x: 50, y: 120, vx: -0.3, vy: 0.25, width: 170, height: 170, imagePath: bubbleGreenPath, readyImagePath: bubbleYellowPath, style: {} },
-  leaveButton: { x: 100, y: 250, vx: 0.2, vy: -0.3, width: 120, height: 120, imagePath: bubbleRedPath, style: {} }
-});
+// --- Utility to shuffle an array ---
+const shuffleArray = array => {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+};
+
+// --- Setup the 3x3 Grid ---
+const setupGrid = () => {
+  if (availableIcons.length === 0) {
+    console.warn('No icons found in /src/assets/icons/studio/.');
+    return;
+  }
+
+  const grid = [];
+  const shuffledIcons = shuffleArray([...availableIcons]);
+
+  for (let i = 0; i < 9; i++) {
+    const isCenter = i === 4;
+    grid.push({
+      isReadyButton: isCenter,
+      iconUrl: isCenter ? null : shuffledIcons[i % shuffledIcons.length],
+      isFlipped: false, // initially flipped to show "Ready?"
+    });
+  }
+
+  cardGrid.value = grid;
+};
 
 // --- Computed & Watcher ---
 const computedRoomStyle = computed(() => ({
-  backgroundColor: roomBGColor.value,
+  '--bg-color': roomBGColor.value,
   '--accent1': roomAccentColor1.value,
   '--accent2': roomAccentColor2.value,
-  '--accent3': roomAccentColor3.value,
-  minHeight: '100vh',
-  width: '100%',
-  position: 'relative',
-  overflow: 'hidden',
 }));
 
-watch(roomBGColor, (newColor) => {
-  if (newColor) {
-    document.body.style.backgroundColor = newColor;
-    document.body.style.transition = 'background-color 0.5s ease';
-  }
-}, { immediate: true });
-
-// --- Methoden & Handler ---
-function updateBubbleDynamicStyles() {
-  for (const key in bubbles) {
-    const bubble = bubbles[key];
-    let currentImage = bubble.imagePath;
-    if (key === 'readyButton' && myReadyStatus.value && bubble.readyImagePath) {
-      currentImage = bubble.readyImagePath;
+watch(
+  roomBGColor,
+  newColor => {
+    if (newColor) {
+      document.body.style.backgroundColor = newColor;
+      document.body.style.transition = 'background-color 0.5s ease';
     }
-    bubbles[key].style = {
-      position: 'absolute',
-      top: `${bubble.y}px`,
-      left: `${bubble.x}px`,
-      width: `${bubble.width}px`,
-      height: `${bubble.height}px`,
-      backgroundImage: `url(${currentImage})`,
-    };
-  }
-}
+  },
+  { immediate: true }
+);
 
-function updateBubblePositions() {
-  if (!containerRef.value) return;
-  const containerWidth = containerRef.value.clientWidth;
-  const containerHeight = containerRef.value.clientHeight;
-  for (const key in bubbles) {
-    const bubble = bubbles[key];
-    bubble.x += bubble.vx;
-    bubble.y += bubble.vy;
-    if (bubble.x + bubble.width > containerWidth || bubble.x < 0) bubble.vx *= -1;
-    if (bubble.y + bubble.height > containerHeight || bubble.y < 0) bubble.vy *= -1;
-  }
-  updateBubbleDynamicStyles();
-  animationFrameId = requestAnimationFrame(updateBubblePositions);
-}
-
-const handleGameUpdate = (data) => {
+// --- Socket Event Handlers ---
+const handleGameUpdate = data => {
   if (data.gameId !== props.gameId) return;
   if (data.roomName) roomDisplayName.value = data.roomName;
   if (data.maxPlayers !== undefined) maxPlayersInRoom.value = data.maxPlayers;
@@ -146,225 +153,286 @@ const handleGameUpdate = (data) => {
     roomBGColor.value = data.pastelPalette.primary;
     roomAccentColor1.value = data.pastelPalette.accent1;
     roomAccentColor2.value = data.pastelPalette.accent2;
-    roomAccentColor3.value = data.pastelPalette.accent3;
   }
   if (data.players !== undefined) {
     players.value = data.players;
     const me = players.value.find(p => p.id === socket.id);
-    if (me) myReadyStatus.value = me.isReadyInLobby;
-  }
-  if (data.message && countdownTime.value === null && !gameIsOver.value) {
-    statusMessage.value = data.message;
-  } else if (countdownTime.value === null && !gameIsOver.value) {
-      const readyCount = players.value.filter(p => p.isReadyInLobby).length;
-      if (readyCount === players.value.length && players.value.length >= 2) {
-          statusMessage.value = 'Alle bereit! Countdown startet gleich...';
-      } else if (players.value.length > 0) {
-          statusMessage.value = 'Warte auf Bereitschaft aller Spieler...';
-      } else {
-          statusMessage.value = 'Du bist in der Lobby.';
+    if (me) {
+      myReadyStatus.value = me.isReadyInLobby;
+      if (cardGrid.value[4]) {
+        cardGrid.value[4].isFlipped = me.isReadyInLobby;
       }
+    }
   }
-  updateBubbleDynamicStyles();
+  if (data.message && !isCountdownActive.value && !gameIsOver.value) {
+    statusMessage.value = data.message;
+  } else if (!isCountdownActive.value && !gameIsOver.value) {
+    const readyCount = players.value.filter(p => p.isReadyInLobby).length;
+    if (readyCount === players.value.length && players.value.length >= 2) {
+      statusMessage.value = 'All ready! Starting countdown...';
+    } else if (players.value.length > 0) {
+      statusMessage.value = 'Waiting for all players to be ready...';
+    } else {
+      statusMessage.value = 'You are in the lobby.';
+    }
+  }
 };
 
-const handleGoToGame = (data) => {
+// This function now correctly handles the navigation when the server commands it.
+const handleGoToGame = data => {
   if (data.gameId === props.gameId) {
-    if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
+    console.log(`[WaitingRoom.vue] Navigating to game ${props.gameId}`);
+    if (countdownAnimationInterval) clearInterval(countdownAnimationInterval);
     router.push(`/game/${props.gameId}`);
   }
 };
 
-const handleLobbyCountdownStarted = (data) => {
-  if (data.roomId === props.gameId) {
-    countdownEndTime.value = data.endTime;
-    statusMessage.value = "";
-    if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
-    
-    const tick = () => {
-      if (countdownEndTime.value === null) {
-        if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
-        localCountdownIntervalId = null;
-        return;
-      }
-      const remaining = Math.max(0, Math.round((countdownEndTime.value - Date.now()) / 1000));
-      countdownTime.value = remaining;
-      if (remaining <= 0) {
-        if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
-        localCountdownIntervalId = null;
-      }
-    };
-    tick();
-    localCountdownIntervalId = setInterval(tick, 1000);
+// THIS IS THE CORRECTED FUNCTION
+const handleLobbyCountdownStarted = data => {
+  if (data.roomId !== props.gameId) return;
+
+  statusMessage.value = 'Starting game!';
+  isCountdownActive.value = true;
+  if (countdownAnimationInterval) clearInterval(countdownAnimationInterval);
+
+  let flipCounter = 0;
+
+  // 👉 Flip the first card immediately:
+  const firstIndex = clockwiseOrder[flipCounter];
+  if (cardGrid.value[firstIndex]) {
+    cardGrid.value[firstIndex].isFlipped = true;
   }
+  flipCounter++;
+
+  // 👉 Then continue flipping every second:
+  countdownAnimationInterval = setInterval(() => {
+    if (flipCounter < clockwiseOrder.length) {
+      const cardToFlipIndex = clockwiseOrder[flipCounter];
+      if (cardGrid.value[cardToFlipIndex]) {
+        cardGrid.value[cardToFlipIndex].isFlipped = true;
+      }
+      flipCounter++;
+    } else {
+      clearInterval(countdownAnimationInterval);
+    }
+  }, 1000);
 };
 
-const handleLobbyCountdownCancelled = (data) => {
-  if (data.roomId === props.gameId) {
-    if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
-    localCountdownIntervalId = null;
-    countdownTime.value = null;
-    countdownEndTime.value = null;
-    statusMessage.value = data.message || 'Countdown abgebrochen.';
-  }
+const handleLobbyCountdownCancelled = data => {
+  if (data.roomId !== props.gameId) return;
+
+  if (countdownAnimationInterval) clearInterval(countdownAnimationInterval);
+  isCountdownActive.value = false;
+  statusMessage.value = data.message || 'Countdown cancelled.';
+  cardGrid.value.forEach((card, index) => {
+    if (index !== 4) {
+      card.isFlipped = false;
+    }
+  });
 };
 
-const handleGameCancelledOrEnded = (data, type = "ended") => {
-  let msg = (type === "cancelled")
-    ? (data.message || 'Das Spiel wurde abgebrochen.')
-    : `Sitzung beendet: ${data.message || data.reason}`;
+const handleGameCancelledOrEnded = data => {
+  let msg = `Session ended: ${data.message || data.reason}`;
   if (!data.gameId || data.gameId === props.gameId) {
-    if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
-    countdownTime.value = null;
+    handleLobbyCountdownCancelled({ roomId: props.gameId });
     statusMessage.value = msg;
     gameIsOver.value = true;
   }
 };
 
-const handleGameNotFound = (data) => {
-  statusMessage.value = data.message || `Raum ${props.gameId} nicht gefunden oder inaktiv.`;
+const handleGameNotFound = data => {
+  statusMessage.value =
+    data.message || `Room ${props.gameId} not found or inactive.`;
   gameIsOver.value = true;
 };
 
-// In WaitingRoom.vue -> <script setup>
-
 onMounted(async () => {
+  setupGrid();
+
   // Listener für eingehende Events registrieren
   socket.on('gameUpdate', handleGameUpdate);
   socket.on('goToGame', handleGoToGame);
-  socket.on('gameEnded', (data) => handleGameCancelledOrEnded(data, "ended"));
+  socket.on('gameEnded', data => handleGameCancelledOrEnded(data, 'ended'));
   socket.on('gameNotFound', handleGameNotFound);
   socket.on('lobby:countdownStarted', handleLobbyCountdownStarted);
   socket.on('lobby:countdownCancelled', handleLobbyCountdownCancelled);
 
   if (props.gameId) {
     const persistentPlayerId = sessionStorage.getItem('myGamePlayerId');
-    
-    socket.emit('joinGame', {
-      roomId: props.gameId,
-      persistentPlayerId: persistentPlayerId
-    }, (response) => {
-      isJoining.value = false;
-      if (response && response.success) {
-        console.log(`[WaitingRoom] Erfolgreich beigetreten/wiederverbunden.`);
-        
-        if (response.newPersistentId) {
-          sessionStorage.setItem('myGamePlayerId', response.newPersistentId);
-        }
 
-        if (response.gameState) {
-          // Stelle den Zustand aus dem Callback wieder her
-          // (dieser Teil ist für Reconnects in eine laufende Lobby wichtig)
-          const state = response.gameState;
-          roomDisplayName.value = state.roomName;
-          maxPlayersInRoom.value = state.maxPlayers;
-          players.value = state.players;
-          if (state.pastelPalette) {
+    socket.emit(
+      'joinGame',
+      {
+        roomId: props.gameId,
+        persistentPlayerId: persistentPlayerId,
+      },
+      response => {
+        isJoining.value = false;
+        if (response && response.success) {
+          console.log(`[WaitingRoom] Erfolgreich beigetreten/wiederverbunden.`);
+
+          if (response.newPersistentId) {
+            sessionStorage.setItem('myGamePlayerId', response.newPersistentId);
+          }
+
+          if (response.gameState) {
+            const state = response.gameState;
+            roomDisplayName.value = state.roomName;
+            maxPlayersInRoom.value = state.maxPlayers;
+            players.value = state.players;
+            if (state.pastelPalette) {
               roomBGColor.value = state.pastelPalette.primary;
-              // ... etc.
+            }
+            const me = state.players.find(p => p.id === socket.id);
+            if (me) myReadyStatus.value = me.isReadyInLobby;
+            if (state.lobbyCountdownEndTime) {
+              handleLobbyCountdownStarted({
+                roomId: props.gameId,
+                endTime: state.lobbyCountdownEndTime,
+              });
+            }
           }
-          const me = state.players.find(p => p.id === socket.id);
-          if (me) myReadyStatus.value = me.isReadyInLobby;
-          if (state.lobbyCountdownEndTime) {
-            handleLobbyCountdownStarted({ roomId: props.gameId, endTime: state.lobbyCountdownEndTime });
-          }
-        }
-        
-        // +++ NEU: Setze den Spieler beim Beitritt explizit auf "nicht bereit" +++
-        console.log("[WaitingRoom] Setze initialen Ready-Status auf 'false' auf dem Server.");
-        socket.emit('player:setReadyStatus', { roomId: props.gameId, isReady: false }, (statusResponse) => {
-            if (statusResponse && statusResponse.success) {
+
+          // +++ NEU: Setze den Spieler beim Beitritt explizit auf "nicht bereit" +++
+          console.log(
+            "[WaitingRoom] Setze initialen Ready-Status auf 'false' auf dem Server."
+          );
+          socket.emit(
+            'player:setReadyStatus',
+            { roomId: props.gameId, isReady: false },
+            statusResponse => {
+              if (statusResponse && statusResponse.success) {
                 // Aktualisiere den lokalen Status basierend auf der Bestätigung des Servers
                 myReadyStatus.value = statusResponse.currentReadyStatus; // Sollte 'false' sein
+              }
             }
-        });
-        // +++ ENDE NEU +++
-
-      } else {
-        statusMessage.value = `Beitritt fehlgeschlagen: ${response.error || 'Unbekannter Fehler'}`;
-        gameIsOver.value = true;
+          );
+          // +++ ENDE NEU +++
+        } else {
+          statusMessage.value = `Beitritt fehlgeschlagen: ${
+            response.error || 'Unbekannter Fehler'
+          }`;
+          gameIsOver.value = true;
+        }
       }
-    });
+    );
   } else {
-      isJoining.value = false;
-      statusMessage.value = 'Fehler: Keine Raum-ID gefunden.';
-      gameIsOver.value = true;
+    isJoining.value = false;
+    statusMessage.value = 'Fehler: Keine Raum-ID gefunden.';
+    gameIsOver.value = true;
   }
-  
+
   await nextTick();
   if (containerRef.value) {
     updateBubblePositions();
     animationFrameId = requestAnimationFrame(updateBubblePositions);
   }
 });
+
 onUnmounted(() => {
-  if (animationFrameId) cancelAnimationFrame(animationFrameId);
-  if(localCountdownIntervalId) clearInterval(localCountdownIntervalId);
+  if (countdownAnimationInterval) clearInterval(countdownAnimationInterval);
   socket.off('gameUpdate', handleGameUpdate);
   socket.off('goToGame', handleGoToGame);
   socket.off('gameEnded');
-  socket.off('gameCancelled');
   socket.off('gameNotFound', handleGameNotFound);
   socket.off('lobby:countdownStarted', handleLobbyCountdownStarted);
   socket.off('lobby:countdownCancelled', handleLobbyCountdownCancelled);
   document.body.style.backgroundColor = '';
-  document.body.style.transition = '';
 });
 
+// --- Methods ---
 function toggleReadyStatus() {
   if (isJoining.value || isTogglingReady.value) return;
 
-  isTogglingReady.value = true;
   const newReadyState = !myReadyStatus.value;
-  socket.emit('player:setReadyStatus', { roomId: props.gameId, isReady: newReadyState }, (response) => {
-    isTogglingReady.value = false;
-    if (response && response.success) {
-      myReadyStatus.value = response.currentReadyStatus;
-    } else {
-      statusMessage.value = `Fehler: ${response?.error || 'Status konnte nicht gesetzt werden.'}`;
-    }
-    updateBubbleDynamicStyles();
-  });
-}
 
-function triggerLeaveGame() {
-  if (!gameIsOver.value) {
-    socket.emit('leaveGame', { gameId: props.gameId });
-  }
-  router.push('/');
+  // ❗ Only block setting ready to true during countdown
+  if (isCountdownActive.value && newReadyState === true) return;
+
+  isTogglingReady.value = true;
+
+  socket.emit(
+    'player:setReadyStatus',
+    { roomId: props.gameId, isReady: newReadyState },
+    response => {
+      isTogglingReady.value = false;
+
+      if (response && response.success) {
+        myReadyStatus.value = response.currentReadyStatus;
+
+        const centerIndex = 4;
+        cardGrid.value[centerIndex].isFlipped = newReadyState;
+
+        // ✅ If someone unreadies during countdown, cancel it
+        if (isCountdownActive.value && newReadyState === false) {
+          console.log('[WaitingRoom] Countdown canceled by player toggle.');
+          socket.emit('lobby:cancelCountdown', { roomId: props.gameId }); // 👈 optional – trigger cancel on server
+          handleLobbyCountdownCancelled({
+            roomId: props.gameId,
+            message: 'Countdown aborted.',
+          });
+        }
+      } else {
+        statusMessage.value = `Error: ${
+          response?.error || 'Could not set status.'
+        }`;
+      }
+    }
+  );
 }
 </script>
-
 <style scoped>
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700&display=swap');
+
+/* --- Main Layout --- */
 .waiting-room-app-container {
-  width: 100%;
-  min-height: 100vh;
-  padding: 1rem 1.5rem;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  position: relative; 
-  overflow: hidden;
-  font-family: 'Baloo 2', cursive, 'Arial Rounded MT Bold', sans-serif;
-  color: white; 
-  box-sizing: border-box;
+  min-height: 100vh;
+  width: 100%;
   background-color: var(--bg-color, #cfcfcf);
-  transition: background-color 0.5s ease-out;
+  padding: 1rem;
+  box-sizing: border-box;
+  font-family: 'Nunito', sans-serif;
+  gap: 1.5rem;
+  transition: background-color 0.5s ease;
+  overflow: hidden;
+  position: relative;
 }
 
 .room-title-main {
+  font-size: 2.2em;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 3px 6px rgba(0, 0, 0, 0.35);
+  margin: 0;
   position: absolute;
   top: 25px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 2.2em;
-  font-weight: 700; 
-  color: rgba(255, 255, 255, 0.95);
-  text-shadow: 0 3px 6px rgba(0,0,0,0.35);
-  margin: 0;
   z-index: 10;
-  letter-spacing: 1px;
+}
+
+.player-count-display {
+  position: absolute;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 20px;
+  color: white;
+  text-align: center;
+  z-index: 10;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.player-count-display .bubble-text-prominent {
+  font-size: 1.3em;
+  display: block;
 }
 
 @media (max-width: 480px) {
@@ -372,80 +440,102 @@ function triggerLeaveGame() {
     font-size: 1.6em;
     top: 15px;
   }
+  .player-count-display {
+    top: 60px;
+  }
 }
 
-.bubble-base { 
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
-  background-color: transparent; 
-  border-radius: 50%; 
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  text-align: center;
-  color: #fff; 
-  font-weight: 600;
-  transition: transform 0.15s ease-out, filter 0.15s ease-out;
-  padding: 10px; 
+/* --- Device Box & Card Grid --- */
+.device-box {
+  background: var(--accent1, #f0f0f0);
+  width: 100%;
+  max-width: 380px;
+  border-radius: 32px;
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.15);
+  padding: 1.5rem;
   box-sizing: border-box;
-  border: none;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.5); 
-  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2)) brightness(1.1);
 }
 
-.ready-bubble-button, .leave-bubble-button, .player-count-bubble {
-  position: absolute; /* Bubbles werden jetzt absolut positioniert */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  width: 100%;
 }
 
-.ready-bubble-button, .leave-bubble-button {
-  cursor: pointer; 
-  user-select: none;
-}
-.ready-bubble-button:hover:not(:disabled), .leave-bubble-button:hover:not(:disabled) {
-  transform: scale(1.08) translateY(-3px);
-  filter: brightness(1.15) drop-shadow(0 6px 12px rgba(0,0,0,0.3));
-}
-.ready-bubble-button:active:not(:disabled), .leave-bubble-button:active:not(:disabled) {
-  transform: scale(1.02) translateY(0px);
-  filter: brightness(0.95) drop-shadow(0 2px 4px rgba(0,0,0,0.2));
-}
-.ready-bubble-button:disabled {
-  filter: grayscale(60%) opacity(0.6) drop-shadow(0 4px 8px rgba(0,0,0,0.2));
-  cursor: not-allowed;
+/* --- Card 3D Flip Styling --- */
+.card-container {
+  aspect-ratio: 1 / 1;
+  perspective: 1000px;
 }
 
-.bubble-text {
-  font-size: 1em; 
-  line-height: 1.2;
-}
-.bubble-text-prominent {
-  font-size: 1.3em;
-  display: block; 
+.card-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  border-radius: 12px;
+  transition: transform 0.6s cubic-bezier(0.68, -0.55, 0.27, 1.55),
+    box-shadow 0.3s ease;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
 }
 
-.player-count-bubble .bubble-text { font-size: 0.8em; }
-.player-count-bubble .bubble-text-prominent { font-size: 1.4em; }
+.card-inner.is-flipped {
+  transform: rotateY(180deg);
+}
 
-.countdown-overlay {
+.card-face {
   position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background-color: var(--accent1, rgba(255, 255, 255, 0.2));
-  color: white;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden; /* This hides the back of the element when it's rotated */
+  -webkit-backface-visibility: hidden;
   display: flex;
   justify-content: center;
   align-items: center;
-  border-radius: 50%; 
-  font-size: 2em;
-  font-weight: bold;
-  backdrop-filter: blur(3px);
-  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  border-radius: 12px;
 }
 
-.ready-bubble-button .bubble-text { font-size: 1.3em; }
-.leave-bubble-button .bubble-text { font-size: 1em; }
+.card-back {
+  background-color: #5cb85c;
+  color: white;
+  font-size: 3em;
+  font-weight: 700;
+}
 
+.card-front {
+  background-color: #f0f8ff;
+  transform: rotateY(180deg); /* Start the front face rotated away */
+}
+
+.game-png-icon {
+  max-width: 70%;
+  max-height: 70%;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.2));
+}
+
+/* --- Center Ready Button --- */
+.card-container.is-ready-button {
+  cursor: pointer;
+}
+
+.card-container.is-ready-button .card-front {
+  background-color: #ffffff; /* Red for 'Not Ready' */
+  color: #2e2e2e;
+  font-size: 1.5rem;
+  font-weight: bold;
+  transition: background-color 0.3s ease;
+}
+
+.card-container.is-ready-button.is-ready .card-front {
+  background-color: #5cb85c; /* Green for 'Ready' */
+}
+
+.card-container.is-ready-button.disabled-during-countdown {
+  filter: opacity(0.7);
+}
+
+/* --- Floating Messages & Overlays --- */
 .floating-status-message {
   position: fixed;
   bottom: 20px;
@@ -456,7 +546,7 @@ function triggerLeaveGame() {
   padding: 12px 22px;
   border-radius: 25px;
   font-size: 0.95em;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
   z-index: 100;
   max-width: 80%;
   text-align: center;
@@ -464,9 +554,11 @@ function triggerLeaveGame() {
 
 .game-over-overlay {
   position: fixed;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
-  background-color: rgba(0,0,0,0.7);
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.7);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -476,24 +568,42 @@ function triggerLeaveGame() {
   padding: 2rem;
   box-sizing: border-box;
 }
+
 .game-over-text {
   font-size: 1.5em;
-  color: var(--accent3, white);
+  color: white;
   margin: 0;
 }
+
+.bubble-base {
+  font-family: inherit;
+}
+
 .back-to-join-bubble-gameover {
-  position: static; width: auto; height: auto;
+  position: static;
+  width: auto;
+  height: auto;
   padding: 15px 30px;
   border-radius: 30px;
   margin-top: 15px;
-  background-image: url('@/assets/bubble-blue.png');
+  background-color: #4285f4;
   color: white;
   cursor: pointer;
   font-weight: 600;
   font-size: 1.1em;
   text-decoration: none;
+  transition: transform 0.2s;
 }
+
 .back-to-join-bubble-gameover:hover {
-    transform: scale(1.05);
+  transform: scale(1.05);
+}
+.card-container.is-ready-button .card-back {
+  font-size: 1.4em;
+  text-align: center;
+}
+.card-container.is-ready-button .card-front {
+  font-size: 1.4em;
+  text-align: center;
 }
 </style>

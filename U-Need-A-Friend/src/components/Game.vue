@@ -1,18 +1,20 @@
 <template>
   <main class="mobile-container" :style="computedContainerStyle">
-    
-  
     <div class="device-box">
       <div class="card-grid">
         <div
           v-for="(card, index) in playerBoard"
           :key="`card-${index}`"
           class="card-container"
+          :class="{ 'is-selected': mySelectionIndex === index }"
           @click="handleCardFlip(card, index)"
+          :ref="el => setCardRef(el, card.symbol)"
         >
-          <div class="card-inner" :class="{ 'is-flipped': card.isFlipped || card.isMatched }">
-            <div class="card-face card-back">
-              </div>
+          <div
+            class="card-inner"
+            :class="{ 'is-flipped': card.isFlipped || card.isMatched }"
+          >
+            <div class="card-face card-back"></div>
             <div class="card-face card-front">
               <GameIcon
                 v-if="card.symbol"
@@ -23,208 +25,214 @@
           </div>
         </div>
       </div>
-      
-      <p v-if="gameMessage" class="game-message" :class="{ error: isErrorMessage }">
-        {{ gameMessage }}
-      </p>
-      <button v-if="!gameIsEffectivelyOver" class="leave-btn" @click="triggerLeaveGame">
-        Leave Game
-      </button>
-      <router-link v-else to="/" class="leave-btn router-link-btn">
-        Back to Start
-      </router-link>
     </div>
-
   </main>
 </template>
 <script setup>
-import { ref, inject, onMounted, onUnmounted, computed, watch } from "vue";
-import GameIcon from "./GameIcon.vue";
-import { useRouter } from "vue-router";
-import { useGameSessionStore } from "@/stores/gameSessionStore";
-import { storeToRefs } from "pinia";
+import { ref, inject, onMounted, onUnmounted, computed, watch, onBeforeUpdate } from 'vue';
+import GameIcon from './GameIcon.vue';
+import { useRouter } from 'vue-router';
+import { useGameSessionStore } from '@/stores/gameSessionStore';
+import { storeToRefs } from 'pinia';
 
 const props = defineProps({
   gameId: { type: String, required: true },
 });
 
-const socket = inject("socket");
+const socket = inject('socket');
 const router = useRouter();
 const gameSessionStore = useGameSessionStore();
 const { currentThemeFolder } = storeToRefs(gameSessionStore);
 
-// --- NEUER ZUSTAND für das Memory-Spiel ---
-const playerBoard = ref([]); // Das 3x3-Board des Spielers, Format: [{ symbol, isFlipped, isMatched }]
-const matchedSymbols = ref([]); // Die oben in der Leiste gezeigten, gefundenen Symbole
+//DOM
+const cardElements = ref({}); // Speichert die DOM-Elemente der Karten
+const setCardRef = (el, symbol) => {
+  if (el) {
+    cardElements.value[symbol] = el;
+  }
+};
+onBeforeUpdate(() => {
+  cardElements.value = {};
+});
+
+// --- Zustand ---
+const playerBoard = ref([]);
 const turnNumber = ref(0);
-const canFlipCard = ref(false); // Kontrolliert, ob der Spieler eine Karte umdrehen darf
-
-const gameMessage = ref("Initializing game connection...");
-const isErrorMessage = ref(false);
+const mySelectionIndex = ref(null);
+const canFlipCard = ref(false);
 const gameIsEffectivelyOver = ref(false);
+const myPlayerId = ref(null);
 
-// --- Computed Properties & Styles (bleiben größtenteils gleich) ---
-const roomBgColor = ref("#fafafa");
-const roomPrimaryColor = ref("#e0e0e0");
+// --- Computed & Styles ---
+const roomBgColor = ref('#fafafa');
+const roomPrimaryColor = ref('#e0e0e0');
 const computedContainerStyle = computed(() => ({
-  "--bg-color": roomBgColor.value,
-  "--primary-color": roomPrimaryColor.value,
+  '--bg-color': roomBgColor.value,
+  '--primary-color': roomPrimaryColor.value,
 }));
-watch(roomBgColor, (newColor) => {
+watch(
+  roomBgColor,
+  newColor => {
     if (newColor) {
       document.body.style.backgroundColor = newColor;
-      document.body.style.transition = "background-color 0.5s ease";
+      document.body.style.transition = 'background-color 0.5s ease';
     }
   },
   { immediate: true }
 );
 
+// --- Socket Event Handler ---
 
-// --- NEUE SOCKET EVENT HANDLER ---
-
-const handleGameInitialized = (data) => {
+const handleGameInitialized = data => {
   if (data.gameId !== props.gameId) return;
-  
-  playerBoard.value = data.playerBoard;
-  matchedSymbols.value = data.matchedSymbols || [];
-  gameIsEffectivelyOver.value = false;
-  isErrorMessage.value = false;
-  
-  if (data.pastelPalette) {
-    roomBgColor.value = data.pastelPalette.primary;
-    roomPrimaryColor.value = data.pastelPalette.accent3;
+  if (data.themeFolder) {
+    gameSessionStore.setCurrentThemeFolder(data.themeFolder);
   }
+  playerBoard.value = data.playerBoard;
+  myPlayerId.value = data.playerId;
+  gameIsEffectivelyOver.value = false;
 };
 
-const handleTurnBegan = (data) => {
+const handleTurnBegan = data => {
   turnNumber.value = data.turnNumber;
-  gameMessage.value = `Round ${turnNumber.value}`;
-  isErrorMessage.value = false;
-  
-  // Drehe alle nicht-gematchten Karten wieder auf die Rückseite
+  mySelectionIndex.value = null; // Eigene Auswahl zurücksetzen
+  canFlipCard.value = true; // Züge erlauben
+
+  // Alle nicht-gematchten Karten zurückdrehen
   playerBoard.value.forEach(card => {
     if (!card.isMatched) {
       card.isFlipped = false;
     }
   });
+};
 
-  canFlipCard.value = true; // Spieler darf jetzt eine Karte wählen
+const handleTurnResolve = data => {
+  if (!data || !data.allChoices) return;
+
+  const myChoice = data.allChoices.find(
+    choice => choice.playerId === myPlayerId.value
+  );
+
+  if (myChoice) {
+    mySelectionIndex.value = null; 
+    const cardToFlip = playerBoard.value[myChoice.cardIndex];
+    if (cardToFlip) {
+      console.log('Flipping card:', cardToFlip.symbol);
+      cardToFlip.isFlipped = true;
+    }
+  }
 };
 
 const handleTurnSuccess = (data) => {
-  gameMessage.value = `A Match! You found ${data.symbol}!`;
-  matchedSymbols.value = data.matchedSymbols;
-
-  // Finde die entsprechende Karte im lokalen Board und markiere sie als gematcht
+  // Markiere die gematchte Karte als permanent umgedreht
   const matchedCard = playerBoard.value.find(c => c.symbol === data.symbol);
   if (matchedCard) {
     matchedCard.isMatched = true;
   }
+
+  // --- HINZUGEFÜGT: GRÜNEN GLOW ANWENDEN ---
+  const el = cardElements.value[data.symbol];
+  if (el) {
+    el.classList.add('glow-success');
+    // Glow nach 1.5 Sekunden wieder entfernen
+    setTimeout(() => {
+      el.classList.remove('glow-success');
+    }, 1500);
+  }
 };
 
 const handleTurnFail = (data) => {
-  gameMessage.value = "Sorry, no match... Try again!";
-  isErrorMessage.value = true;
-  // Das Zurückdrehen der Karten wird vom nächsten 'turnBegan'-Event gesteuert.
-};
+  if (!data || !data.selections) return;
 
-const handleTurnWasReset = (data) => {
-  gameMessage.value = data.message || "Round will reset.";
-  isErrorMessage.value = true;
-  // Warte auf das nächste 'turnBegan' Event
-  canFlipCard.value = false;
-};
+  // 1. Finde NUR die Auswahl, die von DIESEM Client gemacht wurde.
+  const myChoice = data.selections.find(sel => sel.playerId === myPlayerId.value);
 
-const handleGameEnded = (data) => {
-  gameMessage.value = `${data.message || data.reason}`;
-  isErrorMessage.value = (data.reason !== 'victory');
+  // Wenn wir unsere Auswahl nicht finden (sollte nie passieren), nichts tun.
+  if (!myChoice) return;
+
+  const mySymbol = myChoice.symbol;
+
+  // 2. Wende den roten Glow NUR auf die eigene Karte an.
+  const el = cardElements.value[mySymbol];
+  if (el) {
+    el.classList.add('glow-fail');
+    setTimeout(() => {
+      el.classList.remove('glow-fail');
+    }, 1500);
+  }
+
+  // 3. Drehe NUR die eigene Karte nach einer Verzögerung wieder um.
+  setTimeout(() => {
+    const cardToFlipBack = playerBoard.value.find(card => card.symbol === mySymbol);
+    if (cardToFlipBack && !cardToFlipBack.isMatched) {
+      cardToFlipBack.isFlipped = false;
+    }
+  }, 1500); 
+};
+const handleGameEnded = () => {
   gameIsEffectivelyOver.value = true;
   canFlipCard.value = false;
 };
 
-const handleGameError = (data) => {
-  gameMessage.value = `Fehler: ${data.message || "Ein unbekannter Fehler ist aufgetreten."}`;
-  isErrorMessage.value = true;
-  gameIsEffectivelyOver.value = true;
-};
-
-
-// --- METHODEN ---
+// --- Methoden ---
 
 function handleCardFlip(card, index) {
-  if (!canFlipCard.value || card.isFlipped || card.isMatched) {
-    return; // Ungültiger Zug
+  if (!canFlipCard.value || mySelectionIndex.value !== null || card.isMatched) {
+    return;
   }
-  
-  // Optimistisches Update: Karte sofort umdrehen
-  card.isFlipped = true;
-  canFlipCard.value = false; // Sperre weitere Züge für diese Runde
+  canFlipCard.value = false; // Direkt weitere Klicks sperren
+  mySelectionIndex.value = index;
 
-  // Sende die Auswahl an den Server
-  socket.emit("playerFlippedCard", {
+  socket.emit('playerMadeSelection', {
     gameId: props.gameId,
     cardIndex: index,
     symbol: card.symbol,
   });
 }
 
-function triggerLeaveGame() {
-  if (!gameIsEffectivelyOver.value) {
-    socket.emit("leaveGame", { gameId: props.gameId });
-  }
-  router.replace("/");
-}
-
-
-// --- LIFECYCLE & SOCKET SETUP ---
-
+// --- Lifecycle & Socket Setup ---
 
 onMounted(() => {
-  socket.on("gameInitialized", handleGameInitialized);
-  socket.on("turnBegan", handleTurnBegan);
-  socket.on("turnSuccess", handleTurnSuccess);
-  socket.on("turnFail", handleTurnFail);
-  socket.on("turnWasReset", handleTurnWasReset);
-  socket.on("gameEnded", handleGameEnded);
-  socket.on("gameError", handleGameError);
+  socket.on('gameInitialized', handleGameInitialized);
+  socket.on('turnBegan', handleTurnBegan);
+  socket.on('turnResolve', handleTurnResolve);
+  socket.on('turnSuccess', handleTurnSuccess);
+  socket.on('turnFail', handleTurnFail);
+  socket.on('gameEnded', handleGameEnded);
 
-  const persistentPlayerId = sessionStorage.getItem("myGamePlayerId");
+  const persistentPlayerId = sessionStorage.getItem('myGamePlayerId');
   if (!persistentPlayerId) {
-    router.replace("/");
+    router.replace('/');
+    console.log('[Game.vue] Kein persistentPlayerId gefunden. Zurück zur Startseite.');
     return;
   }
 
-  socket.emit("joinGame", {
+  socket.emit(
+    'joinGame',
+    {
       roomId: props.gameId,
       persistentPlayerId: persistentPlayerId,
     },
-    (response) => {
+    response => {
       if (response && response.success) {
-        console.log("[Game.vue] Join/Reconnect zur Spiel-Session erfolgreich.");
-        
-  
+        console.log('[Game.vue] Join/Reconnect zur Spiel-Session erfolgreich.');
         socket.emit('playerReadyForGame', { gameId: props.gameId });
-        
       } else {
-        alert("Konnte nicht wieder mit dem Spiel verbinden. Es wurde möglicherweise beendet.");
-        router.replace("/");
+        alert('Konnte nicht wieder mit dem Spiel verbinden.');
+        router.replace('/');
       }
     }
   );
 });
 
 onUnmounted(() => {
-  // Räume die neuen Listener auf
-  socket.off("gameInitialized", handleGameInitialized);
-  socket.off("turnBegan", handleTurnBegan);
-  socket.off("turnSuccess", handleTurnSuccess);
-  socket.off("turnFail", handleTurnFail);
-  socket.off("turnWasReset", handleTurnWasReset);
-  socket.off("gameEnded", handleGameEnded);
-  socket.off("gameError", handleGameError);
-
-  document.body.style.backgroundColor = "";
-  document.body.style.transition = "";
+  socket.off('gameInitialized', handleGameInitialized);
+  socket.off('turnBegan', handleTurnBegan);
+  socket.off('turnResolve', handleTurnResolve);
+  socket.off('turnSuccess', handleTurnSuccess);
+  socket.off('turnFail', handleTurnFail);
+  socket.off('gameEnded', handleGameEnded);
+  document.body.style.backgroundColor = '';
 });
 </script>
 
@@ -239,7 +247,7 @@ onUnmounted(() => {
   background: var(--bg-color, #fafafa);
   padding: 1rem;
   box-sizing: border-box;
-  font-family: "Helvetica Neue", sans-serif;
+  font-family: 'Helvetica Neue', sans-serif;
   gap: 1rem;
   transition: background 0.5s ease;
 }
@@ -286,10 +294,6 @@ onUnmounted(() => {
   transform: translateY(-5px);
 }
 
-.card-inner.is-flipped {
-  transform: rotateY(180deg);
-}
-
 .card-face {
   position: absolute;
   width: 100%;
@@ -324,22 +328,78 @@ onUnmounted(() => {
   max-height: 75%;
 }
 
+/* --- NEUE, KORRIGIERTE REGELN --- */
+
+/* 1. Der Glow-Effekt gilt immer, wenn eine Karte ausgewählt ist. */
+.card-container.is-selected .card-inner {
+  box-shadow: 0 0 25px 8px rgba(255, 255, 100, 0.9);
+  animation: pulse-animation 1.5s infinite;
+}
+
+/* 2. Die Skalierung (das "Hervorheben") gilt nur, wenn die Karte ausgewählt, aber noch nicht umgedreht ist. */
+.card-container.is-selected .card-inner:not(.is-flipped) {
+  transform: scale(1.05);
+}
+
+/* 3. Die Drehung gilt für jede umgedrehte Karte. */
+.card-inner.is-flipped {
+  transform: rotateY(180deg);
+}
+
+/* 4. Wenn eine Karte ausgewählt UND umgedreht ist, kombiniere beide Transformationen. */
+.card-container.is-selected .card-inner.is-flipped {
+  transform: scale(1.05) rotateY(180deg);
+}
+
+/* GRÜNER GLOW FÜR ERFOLG */
+.card-container.glow-success .card-inner {
+  box-shadow: 0 0 25px 8px rgba(100, 255, 100, 0.9);
+  animation: pulse-success 1.5s 1; /* Animation nur einmal abspielen */
+}
+
+@keyframes pulse-success {
+  0% {
+    box-shadow: 0 0 25px 8px rgba(100, 255, 100, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 30px 12px rgba(100, 255, 100, 0.9);
+  }
+  100% {
+    box-shadow: 0 0 25px 8px rgba(100, 255, 100, 0.7);
+  }
+}
+
+/* ROTER GLOW FÜR FEHLSCHLAG */
+.card-container.glow-fail .card-inner {
+  box-shadow: 0 0 25px 8px rgba(255, 100, 100, 0.9);
+  animation: pulse-fail 1.5s 1; /* Animation nur einmal abspielen */
+}
+
+@keyframes pulse-fail {
+  0% {
+    box-shadow: 0 0 25px 8px rgba(255, 100, 100, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 30px 12px rgba(255, 100, 100, 0.9);
+  }
+  100% {
+    box-shadow: 0 0 25px 8px rgba(255, 100, 100, 0.7);
+  }
+}
+
+@keyframes pulse-animation {
+  0% {
+    box-shadow: 0 0 25px 8px rgba(255, 255, 100, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 30px 12px rgba(255, 255, 100, 0.9);
+  }
+  100% {
+    box-shadow: 0 0 25px 8px rgba(255, 255, 100, 0.7);
+  }
+}
+
 /* --- Nachrichten und Buttons --- */
-.game-message {
-  font-size: 1.1rem;
-  color: #333;
-  min-height: 1.5em;
-  padding: 0.5rem;
-  border-radius: 4px;
-  text-align: center;
-  width: 100%;
-  font-weight: bold;
-}
-.game-message.error {
-  background-color: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
-}
 .leave-btn {
   background: #d9534f;
   color: white;
