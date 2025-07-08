@@ -123,52 +123,47 @@ const handleTurnResolve = data => {
   }
 };
 
+// In Game.vue -> <script setup>
+
 const handleTurnSuccess = (data) => {
-  // Markiere die gematchte Karte als permanent umgedreht
   const matchedCard = playerBoard.value.find(c => c.symbol === data.symbol);
   if (matchedCard) {
     matchedCard.isMatched = true;
   }
 
-  // --- HINZUGEFÜGT: GRÜNEN GLOW ANWENDEN ---
   const el = cardElements.value[data.symbol];
   if (el) {
-    el.classList.add('glow-success');
-    // Glow nach 1.5 Sekunden wieder entfernen
+    el.classList.add('nod-success'); // new class
+    // Remove the class after the animation finishes
     setTimeout(() => {
-      el.classList.remove('glow-success');
-    }, 1500);
+      el.classList.remove('nod-success'); // new class
+    }, 800);
   }
 };
 
 const handleTurnFail = (data) => {
   if (!data || !data.selections) return;
-
-  // 1. Finde NUR die Auswahl, die von DIESEM Client gemacht wurde.
   const myChoice = data.selections.find(sel => sel.playerId === myPlayerId.value);
-
-  // Wenn wir unsere Auswahl nicht finden (sollte nie passieren), nichts tun.
   if (!myChoice) return;
 
   const mySymbol = myChoice.symbol;
-
-  // 2. Wende den roten Glow NUR auf die eigene Karte an.
   const el = cardElements.value[mySymbol];
   if (el) {
-    el.classList.add('glow-fail');
+    el.classList.add('shake-fail'); // new class
+    // Remove the class after the animation finishes
     setTimeout(() => {
-      el.classList.remove('glow-fail');
-    }, 1500);
+      el.classList.remove('shake-fail'); // new class
+    }, 800);
   }
 
-  // 3. Drehe NUR die eigene Karte nach einer Verzögerung wieder um.
   setTimeout(() => {
     const cardToFlipBack = playerBoard.value.find(card => card.symbol === mySymbol);
     if (cardToFlipBack && !cardToFlipBack.isMatched) {
       cardToFlipBack.isFlipped = false;
     }
-  }, 1500); 
+  }, 1500);
 };
+
 const handleGameEnded = () => {
   gameIsEffectivelyOver.value = true;
   canFlipCard.value = false;
@@ -328,76 +323,41 @@ onUnmounted(() => {
   max-height: 75%;
 }
 
-/* --- NEUE, KORRIGIERTE REGELN --- */
+/* --- Core Flip & Selection Logic --- */
 
-/* 1. Der Glow-Effekt gilt immer, wenn eine Karte ausgewählt ist. */
 .card-container.is-selected .card-inner {
   box-shadow: 0 0 25px 8px rgba(255, 255, 100, 0.9);
-  animation: pulse-animation 1.5s infinite;
 }
 
-/* 2. Die Skalierung (das "Hervorheben") gilt nur, wenn die Karte ausgewählt, aber noch nicht umgedreht ist. */
-.card-container.is-selected .card-inner:not(.is-flipped) {
-  transform: scale(1.05);
-}
-
-/* 3. Die Drehung gilt für jede umgedrehte Karte. */
 .card-inner.is-flipped {
   transform: rotateY(180deg);
 }
 
-/* 4. Wenn eine Karte ausgewählt UND umgedreht ist, kombiniere beide Transformationen. */
-.card-container.is-selected .card-inner.is-flipped {
-  transform: scale(1.05) rotateY(180deg);
+/* --- NEW: Success & Fail Animations --- */
+
+/* "Nod" animation for a correct choice */
+.card-container.nod-success .card-inner {
+  animation: nod-animation 0.8s ease-in-out;
 }
 
-/* GRÜNER GLOW FÜR ERFOLG */
-.card-container.glow-success .card-inner {
-  box-shadow: 0 0 25px 8px rgba(100, 255, 100, 0.9);
-  animation: pulse-success 1.5s 1; /* Animation nur einmal abspielen */
+@keyframes nod-animation {
+  0%, 100% { transform: rotateY(180deg) translateY(0); }
+  25% { transform: rotateY(180deg) translateY(-10px); }
+  50% { transform: rotateY(180deg) translateY(5px); }
+  75% { transform: rotateY(180deg) translateY(-5px); }
 }
 
-@keyframes pulse-success {
-  0% {
-    box-shadow: 0 0 25px 8px rgba(100, 255, 100, 0.7);
-  }
-  50% {
-    box-shadow: 0 0 30px 12px rgba(100, 255, 100, 0.9);
-  }
-  100% {
-    box-shadow: 0 0 25px 8px rgba(100, 255, 100, 0.7);
-  }
+/* "Shake" animation for a wrong choice */
+.card-container.shake-fail .card-inner {
+  animation: shake-animation 0.8s cubic-bezier(.36,.07,.19,.97);
 }
 
-/* ROTER GLOW FÜR FEHLSCHLAG */
-.card-container.glow-fail .card-inner {
-  box-shadow: 0 0 25px 8px rgba(255, 100, 100, 0.9);
-  animation: pulse-fail 1.5s 1; /* Animation nur einmal abspielen */
+@keyframes shake-animation {
+  0%, 100% { transform: rotateY(180deg) translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: rotateY(180deg) translateX(-8px); }
+  20%, 40%, 60%, 80% { transform: rotateY(180deg) translateX(8px); }
 }
 
-@keyframes pulse-fail {
-  0% {
-    box-shadow: 0 0 25px 8px rgba(255, 100, 100, 0.7);
-  }
-  50% {
-    box-shadow: 0 0 30px 12px rgba(255, 100, 100, 0.9);
-  }
-  100% {
-    box-shadow: 0 0 25px 8px rgba(255, 100, 100, 0.7);
-  }
-}
-
-@keyframes pulse-animation {
-  0% {
-    box-shadow: 0 0 25px 8px rgba(255, 255, 100, 0.7);
-  }
-  50% {
-    box-shadow: 0 0 30px 12px rgba(255, 255, 100, 0.9);
-  }
-  100% {
-    box-shadow: 0 0 25px 8px rgba(255, 255, 100, 0.7);
-  }
-}
 
 /* --- Nachrichten und Buttons --- */
 .leave-btn {
@@ -416,3 +376,4 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 </style>
+
