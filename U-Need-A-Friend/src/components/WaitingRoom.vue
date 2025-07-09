@@ -309,8 +309,8 @@ onMounted(async () => {
           );
           // +++ ENDE NEU +++
         } else {
-          statusMessage.value = `Beitritt fehlgeschlagen: ${
-            response.error || 'Unbekannter Fehler'
+          statusMessage.value = ` ${
+            response.error || 'Something went wrong.'
           }`;
           gameIsOver.value = true;
         }
@@ -318,7 +318,7 @@ onMounted(async () => {
     );
   } else {
     isJoining.value = false;
-    statusMessage.value = 'Fehler: Keine Raum-ID gefunden.';
+    statusMessage.value = 'No Room found. Try refreshing the page.';
     gameIsOver.value = true;
   }
 
@@ -403,17 +403,20 @@ function toggleReadyStatus() {
 }
 
 .room-title-main {
-  font-size: 2.2em;
+  font-size: clamp(2rem, 6vw, 3.2rem);
   font-weight: 700;
   color: rgba(255, 255, 255, 0.95);
-  text-shadow: 0 3px 6px rgba(0, 0, 0, 0.35);
+  text-shadow: 0 3px 6px rgba(0,0,0,0.35);
   margin: 0;
   position: absolute;
-  top: 25px;
+  top: 40px; /* ⬅️ vorher: 25px */
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
+  white-space: nowrap;
 }
+
+
 
 .player-count-display {
   position: absolute;
@@ -599,9 +602,10 @@ function toggleReadyStatus() {
   transform: scale(1.05);
 }
 .card-container.is-ready-button .card-back {
-  font-size: 1.4em;
+  font-size: clamp(1rem, 3vw, 1.6rem);
   text-align: center;
 }
+
 .card-container.is-ready-button .card-front {
   font-size: 1.4em;
   text-align: center;
