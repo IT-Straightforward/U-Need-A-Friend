@@ -6,7 +6,11 @@
           v-for="(card, index) in playerBoard"
           :key="`card-${index}`"
           class="card-container"
-          :class="{ 'is-selected': mySelectionIndex === index }"
+          :class="{
+            'is-selected':
+              (mySelectionIndex === index || nextSelection?.index === index) &&
+              !card.isFlipped,
+          }"
           @click="handleCardFlip(card, index)"
           :ref="el => setCardRef(el, card.symbol)"
         >
@@ -29,7 +33,15 @@
   </main>
 </template>
 <script setup>
-import { ref, inject, onMounted, onUnmounted, computed, watch, onBeforeUpdate } from 'vue';
+import {
+  ref,
+  inject,
+  onMounted,
+  onUnmounted,
+  computed,
+  watch,
+  onBeforeUpdate,
+} from 'vue';
 import GameIcon from './GameIcon.vue';
 import { useRouter } from 'vue-router';
 import { useGameSessionStore } from '@/stores/gameSessionStore';
@@ -62,6 +74,7 @@ const mySelectionIndex = ref(null);
 const canFlipCard = ref(false);
 const gameIsEffectivelyOver = ref(false);
 const myPlayerId = ref(null);
+const nextSelection = ref(null);
 
 // --- Computed & Styles ---
 const roomBgColor = ref('#fafafa');
@@ -95,8 +108,7 @@ const handleGameInitialized = data => {
 
 const handleTurnBegan = data => {
   turnNumber.value = data.turnNumber;
-  mySelectionIndex.value = null; // Eigene Auswahl zurücksetzen
-  canFlipCard.value = true; // Züge erlauben
+  mySelectionIndex.value = null;
 
   // Alle nicht-gematchten Karten zurückdrehen
   playerBoard.value.forEach(card => {
@@ -104,28 +116,46 @@ const handleTurnBegan = data => {
       card.isFlipped = false;
     }
   });
+
+  // PRÜFEN, ob eine Auswahl für diese neue Runde vorgemerkt wurde
+  if (nextSelection.value) {
+    // Wenn ja, sende sie sofort an den Server
+    socket.emit('playerMadeSelection', {
+      gameId: props.gameId,
+      cardIndex: nextSelection.value.index,
+      symbol: nextSelection.value.symbol,
+    });
+    // Setze die "offizielle" Auswahl für die aktuelle Runde
+    mySelectionIndex.value = nextSelection.value.index;
+    canFlipCard.value = false; // Auswahl für diese Runde wurde getroffen
+    nextSelection.value = null; // Vormerkung löschen
+  } else {
+    // Wenn keine Auswahl vorgemerkt war, erlaube eine neue Auswahl
+    canFlipCard.value = true;
+  }
 };
 
 const handleTurnResolve = data => {
   if (!data || !data.allChoices) return;
+  canFlipCard.value = false; // Ab hier definitiv keine Auswahl für die AKTUELLE Runde mehr möglich
 
   const myChoice = data.allChoices.find(
     choice => choice.playerId === myPlayerId.value
   );
 
   if (myChoice) {
-    mySelectionIndex.value = null; 
+    // Setze mySelectionIndex, falls es nicht schon durch einen Klick passiert ist.
+    // Das ist wichtig, falls der Spieler die Seite neu lädt.
+    mySelectionIndex.value = myChoice.cardIndex;
     const cardToFlip = playerBoard.value[myChoice.cardIndex];
     if (cardToFlip) {
-      console.log('Flipping card:', cardToFlip.symbol);
       cardToFlip.isFlipped = true;
     }
   }
 };
-
 // In Game.vue -> <script setup>
 
-const handleTurnSuccess = (data) => {
+const handleTurnSuccess = data => {
   const matchedCard = playerBoard.value.find(c => c.symbol === data.symbol);
   if (matchedCard) {
     matchedCard.isMatched = true;
@@ -149,19 +179,15 @@ const handleTurnFail = (data) => {
   const mySymbol = myChoice.symbol;
   const el = cardElements.value[mySymbol];
   if (el) {
-    el.classList.add('shake-fail'); // new class
-    // Remove the class after the animation finishes
+    // Einfach die Shake-Animation abspielen.
+    el.classList.add('shake-fail');
     setTimeout(() => {
-      el.classList.remove('shake-fail'); // new class
+      el.classList.remove('shake-fail');
     }, 800);
   }
 
-  setTimeout(() => {
-    const cardToFlipBack = playerBoard.value.find(card => card.symbol === mySymbol);
-    if (cardToFlipBack && !cardToFlipBack.isMatched) {
-      cardToFlipBack.isFlipped = false;
-    }
-  }, 1500);
+  // Der setTimeout zum Zurückdrehen der Karte wird komplett entfernt.
+  // Das übernimmt jetzt zuverlässig der handleTurnBegan-Handler.
 };
 
 const handleGameEnded = () => {
@@ -172,17 +198,29 @@ const handleGameEnded = () => {
 // --- Methoden ---
 
 function handleCardFlip(card, index) {
-  if (!canFlipCard.value || mySelectionIndex.value !== null || card.isMatched) {
+  // Blockiere, wenn die Karte bereits aufgedeckt/gematcht ist oder das Spiel vorbei ist.
+  if (card.isFlipped || card.isMatched || gameIsEffectivelyOver.value) {
     return;
   }
-  canFlipCard.value = false; // Direkt weitere Klicks sperren
-  mySelectionIndex.value = index;
 
-  socket.emit('playerMadeSelection', {
-    gameId: props.gameId,
-    cardIndex: index,
-    symbol: card.symbol,
-  });
+  // Szenario 1: Die Auswahl für die AKTUELLE Runde ist noch möglich.
+  if (canFlipCard.value) {
+    canFlipCard.value = false; // Direkt weitere Klicks für DIESE Runde sperren
+    mySelectionIndex.value = index;
+
+    socket.emit('playerMadeSelection', {
+      gameId: props.gameId,
+      cardIndex: index,
+      symbol: card.symbol,
+    });
+  }
+  // Szenario 2: Auswahl für aktuelle Runde gesperrt, ABER nächste Runde kann vorgemerkt werden.
+  // Wir erlauben die Vormerkung, solange der Spieler noch keine Vormerkung getroffen hat.
+  else if (mySelectionIndex.value !== null && nextSelection.value === null) {
+    // Speichere die Auswahl für die nächste Runde
+    nextSelection.value = { index, symbol: card.symbol };
+    console.log('Nächste Auswahl vorgemerkt:', nextSelection.value);
+  }
 }
 
 // --- Lifecycle & Socket Setup ---
@@ -198,7 +236,9 @@ onMounted(() => {
   const persistentPlayerId = sessionStorage.getItem('myGamePlayerId');
   if (!persistentPlayerId) {
     router.replace('/');
-    console.log('[Game.vue] Kein persistentPlayerId gefunden. Zurück zur Startseite.');
+    console.log(
+      '[Game.vue] Kein persistentPlayerId gefunden. Zurück zur Startseite.'
+    );
     return;
   }
 
@@ -341,23 +381,45 @@ onUnmounted(() => {
 }
 
 @keyframes nod-animation {
-  0%, 100% { transform: rotateY(180deg) translateY(0); }
-  25% { transform: rotateY(180deg) translateY(-10px); }
-  50% { transform: rotateY(180deg) translateY(5px); }
-  75% { transform: rotateY(180deg) translateY(-5px); }
+  0%,
+  100% {
+    transform: rotateY(180deg) translateY(0);
+  }
+  25% {
+    transform: rotateY(180deg) translateY(-10px);
+  }
+  50% {
+    transform: rotateY(180deg) translateY(5px);
+  }
+  75% {
+    transform: rotateY(180deg) translateY(-5px);
+  }
 }
 
 /* "Shake" animation for a wrong choice */
 .card-container.shake-fail .card-inner {
-  animation: shake-animation 0.8s cubic-bezier(.36,.07,.19,.97);
+  animation: shake-animation 0.8s cubic-bezier(0.36, 0.07, 0.19, 0.97);
 }
 
 @keyframes shake-animation {
-  0%, 100% { transform: rotateY(180deg) translateX(0); }
-  10%, 30%, 50%, 70%, 90% { transform: rotateY(180deg) translateX(-8px); }
-  20%, 40%, 60%, 80% { transform: rotateY(180deg) translateX(8px); }
+  0%,
+  100% {
+    transform: rotateY(180deg) translateX(0);
+  }
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: rotateY(180deg) translateX(-8px);
+  }
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: rotateY(180deg) translateX(8px);
+  }
 }
-
 
 /* --- Nachrichten und Buttons --- */
 .leave-btn {
@@ -376,4 +438,3 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 </style>
-
