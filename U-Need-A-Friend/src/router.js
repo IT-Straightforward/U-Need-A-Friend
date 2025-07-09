@@ -17,41 +17,37 @@ const routes = [
     component: Game,
     props: true,
 beforeEnter: async (to, from, next) => {
-  const gameIdFromRoute = to.params.gameId; // z.B. "STUDIO_1"
+  const gameIdFromRoute = to.params.gameId; 
 
   const gameSessionStore = useGameSessionStore();
   const roomDefsStore = useRoomDefinitionsStore();
 
-  // 1. Sicherstellen, dass die Raumdefinitionen geladen sind (dieser Teil ist gut so).
   if (roomDefsStore.rooms.length === 0 && !roomDefsStore.isLoading) {
     try {
       await roomDefsStore.fetchRoomDefinitions();
     } catch (error) {
       console.error('[Router Guard] Kritischer Fehler beim Laden der Raumdefinitionen:', error);
-      gameSessionStore.setCurrentThemeFolder('default'); // Fallback bei Ladefehler
+      gameSessionStore.setCurrentThemeFolder('default'); 
       next();
       return;
     }
   }
   
-  // 2. NEU: Die Basis-ID aus der Routen-ID extrahieren.
   const baseRoomId = gameIdFromRoute.split('_')[0].toUpperCase(); // "STUDIO_1" -> "STUDIO"
 
-  // 3. GEÄNDERT: Suche mit der extrahierten Basis-ID.
-  const roomDefinition = roomDefsStore.getRoomById(baseRoomId); // Suche nach "STUDIO"
+  const roomDefinition = roomDefsStore.getRoomById(baseRoomId); 
 
   if (roomDefinition) {
     // Konvention: Theme-Ordner ist immer die ID des Raumes in Kleinbuchstaben.
-    const themeToSet = roomDefinition.id.toLowerCase(); // "studio"
+    const themeToSet = roomDefinition.id.toLowerCase(); 
     gameSessionStore.setCurrentThemeFolder(themeToSet);
     console.log(`[Router Guard] Theme für Spiel '${gameIdFromRoute}' gesetzt auf: '${themeToSet}'`);
   } else {
-    // Dieser Fall sollte jetzt nur noch eintreten, wenn die Basis-ID wirklich ungültig ist.
     console.warn(`[Router Guard] Keine Definition für Basis-Raum '${baseRoomId}' gefunden. Fallback auf 'default' Theme.`);
     gameSessionStore.setCurrentThemeFolder('default');
   }
 
-  next(); // Wichtig: Navigation fortsetzen!
+  next(); 
 }
   },
   {

@@ -25,7 +25,6 @@ export const useRoomDefinitionsStore = defineStore('roomDefinitions', () => {
     console.log('[RoomDefinitionsStore] Fordere Raumdefinitionen über Socket an...');
 
     return new Promise((resolve, reject) => {
-      // Listener für die Daten-Antwort (nur einmal ausführen)
       socket.once('predefined-rooms-data', (data) => {
         console.log('[RoomDefinitionsStore] Raumdefinitionen über Socket empfangen:', data);
         rooms.value = data;
@@ -37,22 +36,22 @@ export const useRoomDefinitionsStore = defineStore('roomDefinitions', () => {
         console.error('[RoomDefinitionsStore] Fehler beim Empfangen der Raumdefinitionen über Socket:', errorData);
         error.value = errorData.message || 'Unbekannter Socket-Fehler';
         isLoading.value = false;
-        reject(new Error(error.value)); // Das Promise mit einem Fehler ablehnen
+        reject(new Error(error.value)); 
       });
 
-      // Den Request an den Server senden
+
       socket.emit('request-room');
 
-      // Optional: Timeout für die Anfrage
+
       setTimeout(() => {
-        if (isLoading.value) { // Immer noch am Laden nach Timeout
+        if (isLoading.value) {
           const timeoutMsg = 'Timeout beim Warten auf Raumdefinitionen vom Socket-Server.';
           console.error(`[RoomDefinitionsStore] ${timeoutMsg}`);
           error.value = timeoutMsg;
           isLoading.value = false;
           reject(new Error(timeoutMsg));
         }
-      }, 10000); // 10 Sekunden Timeout
+      }, 10000); 
     });
   }
 

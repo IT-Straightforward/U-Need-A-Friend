@@ -3,12 +3,9 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-// 'gameSession' ist die ID des Stores, sie muss eindeutig sein.
 export const useGameSessionStore = defineStore('gameSession', () => {
-  // State (Zustand)
-  const currentThemeFolder = ref('default'); // Initialer/Fallback-Wert
+  const currentThemeFolder = ref('default'); 
 
-  // Actions (Methoden, um den Zustand zu ändern)
   function setCurrentTheme(themeName) {
     if (themeName && typeof themeName === 'string') {
       currentThemeFolder.value = themeName;

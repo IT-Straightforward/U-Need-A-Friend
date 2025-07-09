@@ -755,15 +755,13 @@ socket.on('playerMadeSelection', ({ gameId, cardIndex, symbol }) => {
     game.currentTurn.isResolved = true;
     console.log(`[Game ${gameId}] All ${activePlayers.length} players have made a selection. Resolving turn.`);
     
-    // Schritt 1: Allen Clients sagen, welche Karten sie umdrehen sollen.
     io.to(gameId).emit('turnResolve', { allChoices: game.currentTurn.selections });
 
-    // Schritt 2: Nach einer kurzen Pause die Runde auswerten und das Ergebnis senden.
     setTimeout(() => {
       if (games[gameId]) {
         resolveTurn(game);
       }
-    }, 1500); // 1.5s warten, damit die Flip-Animation sichtbar ist
+    }, 1500); 
   }
 });
 

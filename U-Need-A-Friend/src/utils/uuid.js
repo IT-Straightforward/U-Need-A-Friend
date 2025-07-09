@@ -1,3 +1,3 @@
 export function generateId() {
-  return crypto.randomUUID() // works in modern browsers
+  return crypto.randomUUID()
 }

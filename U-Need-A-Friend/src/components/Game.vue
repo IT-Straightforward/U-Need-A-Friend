@@ -56,8 +56,7 @@ const router = useRouter();
 const gameSessionStore = useGameSessionStore();
 const { currentThemeFolder } = storeToRefs(gameSessionStore);
 
-//DOM
-const cardElements = ref({}); // Speichert die DOM-Elemente der Karten
+const cardElements = ref({}); 
 const setCardRef = (el, symbol) => {
   if (el) {
     cardElements.value[symbol] = el;
@@ -110,42 +109,37 @@ const handleTurnBegan = data => {
   turnNumber.value = data.turnNumber;
   mySelectionIndex.value = null;
 
-  // Alle nicht-gematchten Karten zurückdrehen
   playerBoard.value.forEach(card => {
     if (!card.isMatched) {
       card.isFlipped = false;
     }
   });
 
-  // PRÜFEN, ob eine Auswahl für diese neue Runde vorgemerkt wurde
+
   if (nextSelection.value) {
-    // Wenn ja, sende sie sofort an den Server
+
     socket.emit('playerMadeSelection', {
       gameId: props.gameId,
       cardIndex: nextSelection.value.index,
       symbol: nextSelection.value.symbol,
     });
-    // Setze die "offizielle" Auswahl für die aktuelle Runde
     mySelectionIndex.value = nextSelection.value.index;
-    canFlipCard.value = false; // Auswahl für diese Runde wurde getroffen
-    nextSelection.value = null; // Vormerkung löschen
+    canFlipCard.value = false; 
+    nextSelection.value = null; 
   } else {
-    // Wenn keine Auswahl vorgemerkt war, erlaube eine neue Auswahl
     canFlipCard.value = true;
   }
 };
 
 const handleTurnResolve = data => {
   if (!data || !data.allChoices) return;
-  canFlipCard.value = false; // Ab hier definitiv keine Auswahl für die AKTUELLE Runde mehr möglich
+  canFlipCard.value = false; 
 
   const myChoice = data.allChoices.find(
     choice => choice.playerId === myPlayerId.value
   );
 
   if (myChoice) {
-    // Setze mySelectionIndex, falls es nicht schon durch einen Klick passiert ist.
-    // Das ist wichtig, falls der Spieler die Seite neu lädt.
     mySelectionIndex.value = myChoice.cardIndex;
     const cardToFlip = playerBoard.value[myChoice.cardIndex];
     if (cardToFlip) {
@@ -153,7 +147,6 @@ const handleTurnResolve = data => {
     }
   }
 };
-// In Game.vue -> <script setup>
 
 const handleTurnSuccess = data => {
   const matchedCard = playerBoard.value.find(c => c.symbol === data.symbol);
@@ -163,10 +156,9 @@ const handleTurnSuccess = data => {
 
   const el = cardElements.value[data.symbol];
   if (el) {
-    el.classList.add('nod-success'); // new class
-    // Remove the class after the animation finishes
+    el.classList.add('nod-success'); 
     setTimeout(() => {
-      el.classList.remove('nod-success'); // new class
+      el.classList.remove('nod-success'); 
     }, 800);
   }
 };
@@ -179,15 +171,12 @@ const handleTurnFail = (data) => {
   const mySymbol = myChoice.symbol;
   const el = cardElements.value[mySymbol];
   if (el) {
-    // Einfach die Shake-Animation abspielen.
     el.classList.add('shake-fail');
     setTimeout(() => {
       el.classList.remove('shake-fail');
     }, 800);
   }
 
-  // Der setTimeout zum Zurückdrehen der Karte wird komplett entfernt.
-  // Das übernimmt jetzt zuverlässig der handleTurnBegan-Handler.
 };
 
 const handleGameEnded = () => {
@@ -195,17 +184,15 @@ const handleGameEnded = () => {
   canFlipCard.value = false;
 };
 
-// --- Methoden ---
+
 
 function handleCardFlip(card, index) {
-  // Blockiere, wenn die Karte bereits aufgedeckt/gematcht ist oder das Spiel vorbei ist.
   if (card.isFlipped || card.isMatched || gameIsEffectivelyOver.value) {
     return;
   }
 
-  // Szenario 1: Die Auswahl für die AKTUELLE Runde ist noch möglich.
   if (canFlipCard.value) {
-    canFlipCard.value = false; // Direkt weitere Klicks für DIESE Runde sperren
+    canFlipCard.value = false; 
     mySelectionIndex.value = index;
 
     socket.emit('playerMadeSelection', {
@@ -214,10 +201,8 @@ function handleCardFlip(card, index) {
       symbol: card.symbol,
     });
   }
-  // Szenario 2: Auswahl für aktuelle Runde gesperrt, ABER nächste Runde kann vorgemerkt werden.
-  // Wir erlauben die Vormerkung, solange der Spieler noch keine Vormerkung getroffen hat.
+
   else if (mySelectionIndex.value !== null && nextSelection.value === null) {
-    // Speichere die Auswahl für die nächste Runde
     nextSelection.value = { index, symbol: card.symbol };
     console.log('Nächste Auswahl vorgemerkt:', nextSelection.value);
   }
@@ -373,9 +358,7 @@ onUnmounted(() => {
   transform: rotateY(180deg);
 }
 
-/* --- NEW: Success & Fail Animations --- */
 
-/* "Nod" animation for a correct choice */
 .card-container.nod-success .card-inner {
   animation: nod-animation 0.8s ease-in-out;
 }

@@ -19,7 +19,6 @@
         >
           <div class="card-inner" :class="{ 'is-flipped': card.isFlipped }">
             <div class="card-face card-back">
-              <!-- Back face = Ready button -->
               <div v-if="card.isReadyButton" class="ready-button-content">
                 <span v-if="!isTogglingReady">Ready?</span>
                 <span v-else>...</span>
@@ -27,7 +26,6 @@
               <span v-else>?</span>
             </div>
             <div class="card-face card-front">
-              <!-- Front face = Player count for center -->
               <div v-if="card.isReadyButton">
                 <span class="bubble-text">
                   {{ players.filter(p => p.isReadyInLobby).length }} /
@@ -63,13 +61,11 @@
 import { ref, onMounted, onUnmounted, computed, inject, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
-// --- Dynamic Icon Import ---
 const iconModules = import.meta.glob('@/assets/icons/studio/*.png', {
   eager: true,
 });
 const availableIcons = Object.values(iconModules).map(module => module.default);
 
-// Clockwise order of card indices in a 3x3 grid (0-8), skipping the center (4).
 const clockwiseOrder = [0, 1, 2, 5, 8, 7, 6, 3];
 
 const props = defineProps({
@@ -79,7 +75,7 @@ const props = defineProps({
 const socket = inject('socket');
 const router = useRouter();
 
-// --- State ---
+// --- Zustand ---
 const players = ref([]);
 const roomDisplayName = ref('');
 const roomBGColor = ref('#cfcfcf');
@@ -95,7 +91,7 @@ const isCountdownActive = ref(false);
 let countdownAnimationInterval = null;
 const cardGrid = ref([]);
 
-// --- Utility to shuffle an array ---
+// --- Utility ---
 const shuffleArray = array => {
   for (let i = array.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -104,7 +100,6 @@ const shuffleArray = array => {
   return array;
 };
 
-// --- Setup the 3x3 Grid ---
 const setupGrid = () => {
   if (availableIcons.length === 0) {
     console.warn('No icons found in /src/assets/icons/studio/.');
@@ -119,7 +114,7 @@ const setupGrid = () => {
     grid.push({
       isReadyButton: isCenter,
       iconUrl: isCenter ? null : shuffledIcons[i % shuffledIcons.length],
-      isFlipped: false, // initially flipped to show "Ready?"
+      isFlipped: false, 
     });
   }
 
@@ -178,7 +173,6 @@ const handleGameUpdate = data => {
   }
 };
 
-// This function now correctly handles the navigation when the server commands it.
 const handleGoToGame = data => {
   if (data.gameId === props.gameId) {
     console.log(`[WaitingRoom.vue] Navigating to game ${props.gameId}`);
@@ -187,7 +181,6 @@ const handleGoToGame = data => {
   }
 };
 
-// THIS IS THE CORRECTED FUNCTION
 const handleLobbyCountdownStarted = data => {
   if (data.roomId !== props.gameId) return;
 
@@ -197,14 +190,12 @@ const handleLobbyCountdownStarted = data => {
 
   let flipCounter = 0;
 
-  // 👉 Flip the first card immediately:
   const firstIndex = clockwiseOrder[flipCounter];
   if (cardGrid.value[firstIndex]) {
     cardGrid.value[firstIndex].isFlipped = true;
   }
   flipCounter++;
 
-  // 👉 Then continue flipping every second:
   countdownAnimationInterval = setInterval(() => {
     if (flipCounter < clockwiseOrder.length) {
       const cardToFlipIndex = clockwiseOrder[flipCounter];
@@ -249,7 +240,6 @@ const handleGameNotFound = data => {
 onMounted(async () => {
   setupGrid();
 
-  // Listener für eingehende Events registrieren
   socket.on('gameUpdate', handleGameUpdate);
   socket.on('goToGame', handleGoToGame);
   socket.on('gameEnded', data => handleGameCancelledOrEnded(data, 'ended'));
@@ -293,7 +283,6 @@ onMounted(async () => {
             }
           }
 
-          // +++ NEU: Setze den Spieler beim Beitritt explizit auf "nicht bereit" +++
           console.log(
             "[WaitingRoom] Setze initialen Ready-Status auf 'false' auf dem Server."
           );
@@ -302,12 +291,12 @@ onMounted(async () => {
             { roomId: props.gameId, isReady: false },
             statusResponse => {
               if (statusResponse && statusResponse.success) {
-                // Aktualisiere den lokalen Status basierend auf der Bestätigung des Servers
-                myReadyStatus.value = statusResponse.currentReadyStatus; // Sollte 'false' sein
+         
+                myReadyStatus.value = statusResponse.currentReadyStatus; 
               }
             }
           );
-          // +++ ENDE NEU +++
+   
         } else {
           statusMessage.value = ` ${
             response.error || 'Something went wrong.'
@@ -340,13 +329,12 @@ onUnmounted(() => {
   document.body.style.backgroundColor = '';
 });
 
-// --- Methods ---
+// --- Methoden ---
 function toggleReadyStatus() {
   if (isJoining.value || isTogglingReady.value) return;
 
   const newReadyState = !myReadyStatus.value;
 
-  // ❗ Only block setting ready to true during countdown
   if (isCountdownActive.value && newReadyState === true) return;
 
   isTogglingReady.value = true;
@@ -363,10 +351,10 @@ function toggleReadyStatus() {
         const centerIndex = 4;
         cardGrid.value[centerIndex].isFlipped = newReadyState;
 
-        // ✅ If someone unreadies during countdown, cancel it
+  
         if (isCountdownActive.value && newReadyState === false) {
           console.log('[WaitingRoom] Countdown canceled by player toggle.');
-          socket.emit('lobby:cancelCountdown', { roomId: props.gameId }); // 👈 optional – trigger cancel on server
+          socket.emit('lobby:cancelCountdown', { roomId: props.gameId });
           handleLobbyCountdownCancelled({
             roomId: props.gameId,
             message: 'Countdown aborted.',
@@ -491,7 +479,7 @@ function toggleReadyStatus() {
   position: absolute;
   width: 100%;
   height: 100%;
-  backface-visibility: hidden; /* This hides the back of the element when it's rotated */
+  backface-visibility: hidden; 
   -webkit-backface-visibility: hidden;
   display: flex;
   justify-content: center;
@@ -508,7 +496,7 @@ function toggleReadyStatus() {
 
 .card-front {
   background-color: #f0f8ff;
-  transform: rotateY(180deg); /* Start the front face rotated away */
+  transform: rotateY(180deg); 
 }
 
 .game-png-icon {
@@ -523,7 +511,7 @@ function toggleReadyStatus() {
 }
 
 .card-container.is-ready-button .card-front {
-  background-color: #ffffff; /* Red for 'Not Ready' */
+  background-color: #ffffff; 
   color: #2e2e2e;
   font-size: 1.5rem;
   font-weight: bold;
@@ -531,7 +519,7 @@ function toggleReadyStatus() {
 }
 
 .card-container.is-ready-button.is-ready .card-front {
-  background-color: #5cb85c; /* Green for 'Ready' */
+  background-color: #5cb85c;
 }
 
 .card-container.is-ready-button.disabled-during-countdown {
