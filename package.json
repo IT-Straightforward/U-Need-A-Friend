@@ -1,13 +1,13 @@
 {
-  "name": "code",
+  "name": "memory-breakout",
   "version": "1.0.0",
-  "description": "",
+  "description": "Multiplayer memory card game",
   "main": "index.js",
   "scripts": {
-  "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
-  "dev:client": "npm --prefix U-Need-A-Friend run dev",
-  "dev:server": "npm --prefix backend run dev"
-},
+    "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
+    "dev:client": "npm --prefix MemoryBreakout run dev",
+    "dev:server": "npm --prefix backend run dev"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",

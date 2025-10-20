@@ -17,7 +17,7 @@ const io = new Server(server, {
 const localIconPath = path.join(
   __dirname,
   '..',
-  'U-Need-A-Friend',
+  'MemoryBreakout',
   'src',
   'assets',
   'icons'
@@ -729,41 +729,51 @@ io.on('connection', socket => {
 
   // In server.js -> socket.on('playerMadeSelection', ...)
 
-socket.on('playerMadeSelection', ({ gameId, cardIndex, symbol }) => {
-  const game = games[gameId];
-  if (!game || !game.isRunning || game.currentTurn.isResolved) return;
-  
-  const player = game.players.find(p => p.id === socket.id);
-  if (!player) return;
+  socket.on('playerMadeSelection', ({ gameId, cardIndex, symbol }) => {
+    const game = games[gameId];
+    if (!game || !game.isRunning || game.currentTurn.isResolved) return;
 
-  const hasAlreadySelected = game.currentTurn.selections.some(sel => sel.playerId === socket.id);
-  if (hasAlreadySelected) {
-    console.warn(`[Game ${gameId}] Player ${socket.id} tried to select a second card in the same turn.`);
-    return;
-  }
+    const player = game.players.find(p => p.id === socket.id);
+    if (!player) return;
 
-  console.log(`[Game ${gameId}] Turn ${game.currentTurn.turnNumber}: Player ${socket.id} selected symbol '${symbol}'.`);
-  
-  game.currentTurn.selections.push({
-    playerId: socket.id,
-    cardIndex: cardIndex,
-    symbol: symbol
+    const hasAlreadySelected = game.currentTurn.selections.some(
+      sel => sel.playerId === socket.id
+    );
+    if (hasAlreadySelected) {
+      console.warn(
+        `[Game ${gameId}] Player ${socket.id} tried to select a second card in the same turn.`
+      );
+      return;
+    }
+
+    console.log(
+      `[Game ${gameId}] Turn ${game.currentTurn.turnNumber}: Player ${socket.id} selected symbol '${symbol}'.`
+    );
+
+    game.currentTurn.selections.push({
+      playerId: socket.id,
+      cardIndex: cardIndex,
+      symbol: symbol,
+    });
+
+    const activePlayers = game.players.filter(p => !p.disconnected);
+    if (game.currentTurn.selections.length === activePlayers.length) {
+      game.currentTurn.isResolved = true;
+      console.log(
+        `[Game ${gameId}] All ${activePlayers.length} players have made a selection. Resolving turn.`
+      );
+
+      io.to(gameId).emit('turnResolve', {
+        allChoices: game.currentTurn.selections,
+      });
+
+      setTimeout(() => {
+        if (games[gameId]) {
+          resolveTurn(game);
+        }
+      }, 1500);
+    }
   });
-
-  const activePlayers = game.players.filter(p => !p.disconnected);
-  if (game.currentTurn.selections.length === activePlayers.length) {
-    game.currentTurn.isResolved = true;
-    console.log(`[Game ${gameId}] All ${activePlayers.length} players have made a selection. Resolving turn.`);
-    
-    io.to(gameId).emit('turnResolve', { allChoices: game.currentTurn.selections });
-
-    setTimeout(() => {
-      if (games[gameId]) {
-        resolveTurn(game);
-      }
-    }, 1500); 
-  }
-});
 
   function startLobbyCountdown(game) {
     if (!game || game.lobbyCountdownTimerId) {

@@ -8,36 +8,34 @@ import { useGameSessionStore } from '@/stores/gameSessionStore';
 
 const routes = [
   { path: '/', redirect: '/redirect' },
-  { path: '/redirect', component: Redirect },
+  { path: '/redirect', component: Redirect }, 
   { path: '/create', component: AdminPanel },
   {
     path: '/game/:gameId',
     name: 'GameView',
     component: Game,
     props: true,
-    beforeEnter: async (to, from, next) => {
-      const gameIdFromRoute = to.params.gameId;
+beforeEnter: async (to, from, next) => {
+  const gameIdFromRoute = to.params.gameId; 
 
-      const gameSessionStore = useGameSessionStore();
+  const gameSessionStore = useGameSessionStore();
 
-      // Always set theme to 'studio' for MemoryBreakout (single-room app)
-      gameSessionStore.setCurrentThemeFolder('studio');
-      console.log(
-        `[Router Guard] Theme für Spiel '${gameIdFromRoute}' gesetzt auf: 'studio'`
-      );
+  // Always set theme to 'studio' for MemoryBreakout (single-room app)
+  gameSessionStore.setCurrentThemeFolder('studio');
+  console.log(`[Router Guard] Theme für Spiel '${gameIdFromRoute}' gesetzt auf: 'studio'`);
 
-      next();
-    },
+  next(); 
+}
   },
   {
     path: '/waiting/:gameId',
     name: 'WaitingRoom',
     component: WaitingRoom,
-    props: true,
-  },
+    props: true
+  }
 ];
 
 export default createRouter({
   history: createWebHistory(),
-  routes,
+  routes
 });
